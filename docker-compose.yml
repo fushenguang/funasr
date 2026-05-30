@@ -41,7 +41,9 @@ services:
       - funasr-api
       - funasr-ws
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      # 💡 修复点：把 /health 改为 /
+      # wget -q -O /dev/null 表示静默请求并丢弃输出，只要 HTTP 状态码是 200 就返回成功
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
       interval: 30s
       timeout: 5s
       retries: 3
