@@ -1,0 +1,45 @@
+# ============================================================
+# .gitignore - 不进 Git 的内容
+# ============================================================
+
+# 环境变量（包含敏感配置）
+.env
+
+# 模型文件（体积太大，用 download_models.sh 管理）
+models/
+!models/.gitkeep
+
+# 日志文件
+logs/**/*.log
+logs/**/*.log.*
+!logs/.gitkeep
+!logs/nginx/.gitkeep
+!logs/api/.gitkeep
+!logs/runtime/.gitkeep
+!logs/system/.gitkeep
+
+# TLS 证书
+nginx/certs/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Docker 构建缓存
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# 临时文件
+*.tmp
+*.temp
+/tmp/

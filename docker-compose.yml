@@ -1,0 +1,147 @@
+name: funasr
+
+# ============================================================
+# FunASR 生产部署
+#
+# 两个服务都用同一个镜像，直接调用官方命令：
+#   funasr-api: funasr-server CLI (官方内置，pip install funasr 即有)
+#   funasr-ws:  官方 funasr_wss_server.py (从 pip 包内提取)
+#
+# 扩展: docker compose up -d --scale funasr-api=2
+# ============================================================
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "10"
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            capabilities: [gpu]
+
+services:
+
+  # ── Nginx 统一入口 ──────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - funasr-api
+      - funasr-ws
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - frontend
+      - backend
+
+  # ── HTTP API（官方 funasr-server CLI）────────────────────────
+  funasr-api:
+    <<: *gpu
+    build:
+      context: ./services/funasr
+      dockerfile: Dockerfile
+    image: funasr:${FUNASR_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    expose:
+      - "8000"
+    volumes:
+      - ./models:/root/.cache/modelscope/hub   # modelscope 默认缓存路径
+      - ./logs/api:/app/logs
+    environment:
+      - MODELSCOPE_CACHE=/root/.cache/modelscope/hub
+      - VLLM_API_KEY=${FUNASR_API_KEY:-funasr-internal}
+    # 官方命令: funasr-server --device cuda
+    # model=sensevoice 是官方默认值，文档确认正确
+    command: >-
+      funasr-server
+      --model sensevoice
+      --device ${FUNASR_DEVICE:-cuda}
+      --port 8000
+      --host 0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - backend
+
+  # ── WebSocket 实时流（官方 funasr_wss_server.py）─────────────
+  funasr-ws:
+    <<: *gpu
+    build:
+      context: ./services/funasr
+      dockerfile: Dockerfile
+    image: funasr:${FUNASR_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    expose:
+      - "10095"
+    volumes:
+      - ./models:/root/.cache/modelscope/hub
+      - ./logs/runtime:/app/logs
+    environment:
+      - MODELSCOPE_CACHE=/root/.cache/modelscope/hub
+    # 官方参数名用下划线，certfile 0 表示关闭 SSL
+    command:
+      - sh
+      - -c
+      - |
+        sh /opt/ensure_wss_server.sh &&
+        exec python /opt/funasr_wss_server.py
+          --port 10095
+          --asr_model "$${WS_ASR_MODEL:-iic/SenseVoiceSmall}"
+          --asr_model_online "$${WS_ASR_ONLINE_MODEL:-iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online}"
+          --punc_model "$${WS_PUNC_MODEL:-iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}"
+          --ngpu 1
+          --device "$${FUNASR_DEVICE:-cuda}"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket;s=socket.socket();s.settimeout(3);s.connect(('localhost',10095));s.close()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    networks:
+      - backend
+
+  # ── 日志轮转 ────────────────────────────────────────────────
+  log-rotate:
+    image: nginx:1.27-alpine   # 复用已有镜像，避免额外拉取
+    restart: unless-stopped
+    logging: *default-logging
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          find /logs -name "*.log" -size +100M -exec sh -c 'mv "$$1" "$$1.$(date +%Y%m%d%H%M%S)" && touch "$$1"' _ {} \;
+          find /logs -name "*.log.*" -mtime +${LOG_RETENTION_DAYS:-30} -delete
+          sleep 3600
+        done
+    volumes:
+      - ./logs:/logs
+    networks: []
+
+networks:
+  frontend:
+    name: funasr_frontend
+  backend:
+    name: funasr_backend
+    # 注意：不设置 internal:true，容器需要访问 ModelScope 下载模型
