@@ -100,8 +100,6 @@ services:
       - ./logs/runtime:/app/logs
     environment:
       - MODELSCOPE_CACHE=/root/.cache/modelscope/hub
-    # 官方参数名用下划线，certfile 0 表示关闭 SSL
-    # 官方参数名用下划线，certfile 0 表示关闭 SSL
     command:
       - sh
       - -c
@@ -114,7 +112,8 @@ services:
           --punc_model "$${WS_PUNC_MODEL:-iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}" \
           --ngpu 1 \
           --device "$${FUNASR_DEVICE:-cuda}" \
-          --certfile 0
+          --certfile "" \
+          --keyfile ""
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import socket;s=socket.socket();s.settimeout(3);s.connect(('localhost',10095));s.close()\""]
       interval: 30s
