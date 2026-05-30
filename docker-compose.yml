@@ -91,6 +91,8 @@ services:
       context: ./services/funasr
       dockerfile: Dockerfile
     image: funasr:${FUNASR_VERSION:-latest}
+    ports:
+      - "${WS_PORT:-10095}:10095"
     restart: unless-stopped
     logging: *default-logging
     expose:
