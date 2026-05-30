@@ -101,18 +101,20 @@ services:
     environment:
       - MODELSCOPE_CACHE=/root/.cache/modelscope/hub
     # 官方参数名用下划线，certfile 0 表示关闭 SSL
+    # 官方参数名用下划线，certfile 0 表示关闭 SSL
     command:
       - sh
       - -c
       - |
         sh /opt/ensure_wss_server.sh &&
-        exec python /opt/funasr_wss_server.py
-          --port 10095
-          --asr_model "$${WS_ASR_MODEL:-iic/SenseVoiceSmall}"
-          --asr_model_online "$${WS_ASR_ONLINE_MODEL:-iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online}"
-          --punc_model "$${WS_PUNC_MODEL:-iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}"
-          --ngpu 1
-          --device "$${FUNASR_DEVICE:-cuda}"
+        exec python /opt/funasr_wss_server.py \
+          --port 10095 \
+          --asr_model "$${WS_ASR_MODEL:-iic/SenseVoiceSmall}" \
+          --asr_model_online "$${WS_ASR_ONLINE_MODEL:-iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online}" \
+          --punc_model "$${WS_PUNC_MODEL:-iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}" \
+          --ngpu 1 \
+          --device "$${FUNASR_DEVICE:-cuda}" \
+          --certfile 0
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import socket;s=socket.socket();s.settimeout(3);s.connect(('localhost',10095));s.close()\""]
       interval: 30s
