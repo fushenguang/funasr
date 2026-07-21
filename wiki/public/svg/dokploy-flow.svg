@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 160" role="img">
+  <title>Dokploy 部署流程</title>
+  <desc>Git Push → Dokploy 平台 → GPU 服务器自动部署及环境变量注入</desc>
+  <style>
+    :root, :host {
+      --svg-font: "Anthropic Sans", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif;
+      --svg-text-primary: #3D3B37; --svg-text-secondary: #6B6A66; --svg-arr: #898781; --svg-canvas: #FCFAF5;
+      --band-fill: #F1EFE8; --band-stroke: #5F5E5A;
+      --c-purple-fill: #EEEDFE; --c-purple-stroke: #534AB7; --c-purple-th: #3C3489; --c-purple-ts: #534AB7;
+      --c-teal-fill: #E1F5EE; --c-teal-stroke: #0F6E56; --c-teal-th: #085041; --c-teal-ts: #0F6E56;
+      --c-blue-fill: #E6F1FB; --c-blue-stroke: #185FA5; --c-blue-th: #0C447C; --c-blue-ts: #185FA5;
+      --c-coral-fill: #FAECE7; --c-coral-stroke: #993C1D; --c-coral-th: #712B13; --c-coral-ts: #993C1D;
+      --c-amber-fill: #FAEEDA; --c-amber-stroke: #854F0B; --c-amber-th: #633806; --c-amber-ts: #854F0B;
+      --c-gray-fill: #F1EFE8; --c-gray-stroke: #A8A69E; --c-gray-th: #4A4945; --c-gray-ts: #6B6A66;
+      --c-green-fill: #E7F4E4; --c-green-stroke: #3B8A44; --c-green-th: #245C2A; --c-green-ts: #3B8A44;
+      --c-pink-fill: #FCE9F1; --c-pink-stroke: #B84A7D; --c-pink-th: #83224F; --c-pink-ts: #B84A7D;
+      --c-red-fill: #FBE9E7; --c-red-stroke: #C0392B; --c-red-th: #7E2018; --c-red-ts: #C0392B;
+    }
+    @media (prefers-color-scheme: dark) { :root, :host {
+      --svg-text-primary: #E8E4DC; --svg-text-secondary: #A8A49C; --svg-arr: #7C7A74; --svg-canvas: #1A1815;
+      --band-fill: #232019; --band-stroke: #8A8880;
+      --c-purple-fill: #23213A; --c-purple-stroke: #8B82D6; --c-purple-th: #CFCBF5; --c-purple-ts: #A9A2E6;
+      --c-teal-fill: #17302A; --c-teal-stroke: #4FA98E; --c-teal-th: #B6E4D3; --c-teal-ts: #6FC0A6;
+      --c-blue-fill: #162A3A; --c-blue-stroke: #5A93C8; --c-blue-th: #BEDAF0; --c-blue-ts: #7FB0DC;
+      --c-coral-fill: #3A241A; --c-coral-stroke: #C87551; --c-coral-th: #F0C4AE; --c-coral-ts: #D89675;
+      --c-amber-fill: #352915; --c-amber-stroke: #C79A4C; --c-amber-th: #EBD6A0; --c-amber-ts: #D4B472;
+      --c-gray-fill: #26241E; --c-gray-stroke: #8A8880; --c-gray-th: #DAD6CC; --c-gray-ts: #A8A49C;
+      --c-green-fill: #1E3320; --c-green-stroke: #5AA860; --c-green-th: #C0E4C0; --c-green-ts: #7FC084;
+      --c-pink-fill: #34202B; --c-pink-stroke: #C86F98; --c-pink-th: #F0C6DA; --c-pink-ts: #D897B4;
+      --c-red-fill: #3A211D; --c-red-stroke: #C56A5D; --c-red-th: #F0C2BA; --c-red-ts: #D8938A;
+    }}
+    html.dark { --svg-text-primary: #E8E4DC; --svg-text-secondary: #A8A49C; --svg-arr: #7C7A74; --svg-canvas: #1A1815;
+      --band-fill: #232019; --band-stroke: #8A8880;
+      --c-purple-fill: #23213A; --c-purple-stroke: #8B82D6; --c-purple-th: #CFCBF5; --c-purple-ts: #A9A2E6;
+      --c-teal-fill: #17302A; --c-teal-stroke: #4FA98E; --c-teal-th: #B6E4D3; --c-teal-ts: #6FC0A6;
+      --c-blue-fill: #162A3A; --c-blue-stroke: #5A93C8; --c-blue-th: #BEDAF0; --c-blue-ts: #7FB0DC;
+      --c-coral-fill: #3A241A; --c-coral-stroke: #C87551; --c-coral-th: #F0C4AE; --c-coral-ts: #D89675;
+      --c-amber-fill: #352915; --c-amber-stroke: #C79A4C; --c-amber-th: #EBD6A0; --c-amber-ts: #D4B472;
+      --c-gray-fill: #26241E; --c-gray-stroke: #8A8880; --c-gray-th: #DAD6CC; --c-gray-ts: #A8A49C;
+      --c-green-fill: #1E3320; --c-green-stroke: #5AA860; --c-green-th: #C0E4C0; --c-green-ts: #7FC084;
+      --c-pink-fill: #34202B; --c-pink-stroke: #C86F98; --c-pink-th: #F0C6DA; --c-pink-ts: #D897B4;
+      --c-red-fill: #3A211D; --c-red-stroke: #C56A5D; --c-red-th: #F0C2BA; --c-red-ts: #D8938A;
+    }
+    html:not(.dark) { --svg-text-primary: #3D3B37; --svg-text-secondary: #6B6A66; --svg-arr: #898781; --svg-canvas: #FCFAF5;
+      --band-fill: #F1EFE8; --band-stroke: #5F5E5A;
+      --c-purple-fill: #EEEDFE; --c-purple-stroke: #534AB7; --c-purple-th: #3C3489; --c-purple-ts: #534AB7;
+      --c-teal-fill: #E1F5EE; --c-teal-stroke: #0F6E56; --c-teal-th: #085041; --c-teal-ts: #0F6E56;
+      --c-blue-fill: #E6F1FB; --c-blue-stroke: #185FA5; --c-blue-th: #0C447C; --c-blue-ts: #185FA5;
+      --c-coral-fill: #FAECE7; --c-coral-stroke: #993C1D; --c-coral-th: #712B13; --c-coral-ts: #993C1D;
+      --c-amber-fill: #FAEEDA; --c-amber-stroke: #854F0B; --c-amber-th: #633806; --c-amber-ts: #854F0B;
+      --c-gray-fill: #F1EFE8; --c-gray-stroke: #A8A69E; --c-gray-th: #4A4945; --c-gray-ts: #6B6A66;
+      --c-green-fill: #E7F4E4; --c-green-stroke: #3B8A44; --c-green-th: #245C2A; --c-green-ts: #3B8A44;
+      --c-pink-fill: #FCE9F1; --c-pink-stroke: #B84A7D; --c-pink-th: #83224F; --c-pink-ts: #B84A7D;
+      --c-red-fill: #FBE9E7; --c-red-stroke: #C0392B; --c-red-th: #7E2018; --c-red-ts: #C0392B;
+    }
+    text { font-family: var(--svg-font); }
+    text.t  { font-size: 14px; font-weight: 400; fill: var(--svg-text-primary); }
+    text.th { font-size: 14px; font-weight: 500; }
+    text.ts { font-size: 12px; font-weight: 400; }
+    .band-label { font-family: var(--svg-font); font-size: 12px; font-weight: 400; fill: var(--svg-text-secondary); }
+    .arr    { stroke: var(--svg-arr); stroke-width: 1.5px; fill: none; }
+    .leader { stroke: var(--svg-arr); stroke-width: 1px; stroke-dasharray: 4 3; fill: none; }
+    .c-purple rect, .c-purple circle { fill: var(--c-purple-fill); stroke: var(--c-purple-stroke); stroke-width: 1px; }
+    .c-purple text.th, .c-purple text.t { fill: var(--c-purple-th); } .c-purple text.ts { fill: var(--c-purple-ts); }
+    .c-teal rect, .c-teal circle { fill: var(--c-teal-fill); stroke: var(--c-teal-stroke); stroke-width: 1px; }
+    .c-teal text.th, .c-teal text.t { fill: var(--c-teal-th); } .c-teal text.ts { fill: var(--c-teal-ts); }
+    .c-green rect, .c-green circle { fill: var(--c-green-fill); stroke: var(--c-green-stroke); stroke-width: 1px; }
+    .c-green text.th, .c-green text.t { fill: var(--c-green-th); } .c-green text.ts { fill: var(--c-green-ts); }
+    .c-amber rect, .c-amber circle { fill: var(--c-amber-fill); stroke: var(--c-amber-stroke); stroke-width: 1px; }
+    .c-amber text.th, .c-amber text.t { fill: var(--c-amber-th); } .c-amber text.ts { fill: var(--c-amber-ts); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="160" fill="var(--svg-canvas)"/>
+  <!-- Box 1: Git Push (c-purple: core/entry) -->
+  <g class="c-purple">
+    <rect x="70" y="20" width="168" height="60" rx="8"/>
+    <text class="th" x="154" y="42" text-anchor="middle" dominant-baseline="central">Git Push</text>
+    <text class="ts" x="154" y="62" text-anchor="middle" dominant-baseline="central">fushenguang/funasr</text>
+  </g>
+  <!-- Arrow 1→2 -->
+  <line x1="238" y1="50" x2="250" y2="50" class="arr" marker-end="url(#arrow)"/>
+  <!-- Box 2: Dokploy (c-teal: infra) -->
+  <g class="c-teal">
+    <rect x="256" y="20" width="168" height="60" rx="8"/>
+    <text class="th" x="340" y="42" text-anchor="middle" dominant-baseline="central">Dokploy 平台</text>
+    <text class="ts" x="340" y="62" text-anchor="middle" dominant-baseline="central">自动构建 · 部署</text>
+  </g>
+  <!-- Arrow 2→3 -->
+  <line x1="424" y1="50" x2="436" y2="50" class="arr" marker-end="url(#arrow)"/>
+  <!-- Box 3: GPU Server (c-green: success/result) -->
+  <g class="c-green">
+    <rect x="442" y="20" width="168" height="60" rx="8"/>
+    <text class="th" x="526" y="42" text-anchor="middle" dominant-baseline="central">GPU 服务器</text>
+    <text class="ts" x="526" y="62" text-anchor="middle" dominant-baseline="central">RTX3060 12GB</text>
+  </g>
+  <!-- Dashed line: Dokploy → ENV (c-amber: external) -->
+  <g class="c-amber">
+    <rect x="256" y="100" width="168" height="44" rx="8"/>
+    <text class="th" x="340" y="122" text-anchor="middle" dominant-baseline="central">.env 环境变量</text>
+  </g>
+  <line x1="340" y1="80" x2="340" y2="96" class="leader"/>
+</svg>

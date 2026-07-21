@@ -1,0 +1,74 @@
+---
+title: 同步上游仓库代码
+description: 如何从 FunASR 官方仓库同步最新代码和模型更新
+---
+
+## 同步策略概述
+
+本部署仓库基于 [FunASR 官方仓库](https://github.com/modelscope/FunASR/tree/main) 构建。FunASR 官方频繁发布新版本（模型增强、bug 修复、性能优化），建议定期同步。
+
+![FunASR 上游仓库同步流程](/svg/sync-upstream-flow.svg)
+
+## 同步步骤
+
+### 1. 拉取官方最新代码
+
+```bash
+# 添加官方仓库为 upstream（首次）
+git remote add upstream https://github.com/modelscope/FunASR.git
+
+# 拉取最新变更
+git fetch upstream
+
+# 将官方 main 分支合并到当前分支
+git merge upstream/main
+```
+
+### 2. 关注关键文件变更
+
+官方更新中需要重点关注的路径：
+
+| 关注路径 | 对部署的影响 |
+|----------|-------------|
+| `funasr/` | Python SDK 核心代码，pip 安装自动更新 |
+| `runtime/python/websocket/funasr_wss_server.py` | WebSocket 服务端，Dockerfile 从中提取 |
+| `examples/openai_api/` | OpenAI 兼容接口参考 |
+| `docs/model_selection_zh.md` | 模型选择建议 |
+
+### 3. 更新 pip 依赖版本
+
+官方定期发布 PyPI 版本（最新：v1.3.22）。修改 `services/funasr/Dockerfile`：
+
+```dockerfile
+# 原：固定版本
+RUN pip install --no-cache-dir funasr
+
+# 推荐：指定最新稳定版
+RUN pip install --no-cache-dir "funasr>=1.3.22"
+```
+
+### 4. 重新构建并部署
+
+```bash
+# 重新构建镜像
+docker compose build --no-cache funasr-api funasr-ws
+
+# 滚动更新（不中断服务）
+docker compose up -d --no-deps funasr-api funasr-ws
+
+# 验证
+curl http://localhost/health
+```
+
+## 版本锁定建议
+
+| 组件 | 锁定方式 | 说明 |
+|------|----------|------|
+| FunASR pip | `funasr==1.3.22` | Dockerfile 固定版本号 |
+| 模型 | `iic/SenseVoiceSmall` | 固定 ModelScope ID |
+| 基础镜像 | `pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime` | Dockerfile 固定标签 |
+| Nginx | `nginx:1.27-alpine` | docker-compose.yml 固定版本 |
+
+> **建议：** 先在测试环境验证新版本的功能和性能（WER/CER、延迟、RTF），确认无回归后再推生产。
+
+> 来源：[FunASR 官方仓库](https://github.com/modelscope/FunASR) · [发布记录](https://github.com/modelscope/FunASR/releases)

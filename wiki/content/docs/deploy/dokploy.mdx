@@ -1,0 +1,73 @@
+---
+title: Dokploy 部署
+description: 通过 Dokploy 平台一键部署 FunASR 语音识别服务
+---
+
+## Dokploy 平台概览
+
+本服务支持通过 [Dokploy](https://dokploy.com) 平台一键部署，Dokploy 配置已维护在项目根目录的 `.env` 中。
+
+![Dokploy 部署流程](/svg/dokploy-flow.svg)
+
+## 环境变量配置
+
+以下 Dokploy 相关环境变量已在 `.env` 中维护：
+
+| 变量 | 说明 | 示例值 |
+|------|------|--------|
+| `DOKPLOY_API_TOKEN` | Dokploy API 认证令牌 | `pk-xxx...` |
+| `DOKPLOY_BASE_URL` | Dokploy 服务地址 | `https://ops.fujia.site` |
+
+## 部署流程
+
+### 1. 确保 .env 配置完整
+
+```bash
+# 确认 Dokploy 配置存在
+grep -E 'DOKPLOY_' .env
+```
+
+### 2. 推送代码触发部署
+
+```bash
+git add .
+git commit -m "feat: deploy via Dokploy"
+git push origin main
+```
+
+Dokploy 将自动：
+1. 拉取最新代码
+2. 读取 `.env` 中的环境变量
+3. 执行 `docker compose up -d`
+4. 完成健康检查后上线
+
+### 3. 验证部署
+
+```bash
+# 通过 Dokploy 暴露的域名访问
+curl https://<dokploy-domain>/health
+
+# 或直接访问服务器
+curl http://<server-ip>/health
+```
+
+## 与 Docker Compose 的区别
+
+| 维度 | 直接 Docker Compose | Dokploy 部署 |
+|------|---------------------|-------------|
+| 触发方式 | 手动 SSH 执行 | Git push 自动触发 |
+| 环境管理 | 服务器本地 `.env` | Dokploy 平台注入 |
+| 回滚 | 手动 git checkout | 平台一键回滚 |
+| 日志查看 | `docker compose logs` | Dokploy Web UI |
+| 适用场景 | 单机开发/测试 | 生产环境自动运维 |
+
+> **注意：** Dokploy 部署依赖 `dokploy-compose-deploy` skill，具体配置和参数说明请参考该 skill 文档。
+
+## 故障排查
+
+如 Dokploy 部署失败，检查以下项：
+
+1. `.env` 中的 `DOKPLOY_API_TOKEN` 和 `DOKPLOY_BASE_URL` 是否正确
+2. 目标服务器是否安装了 Docker + NVIDIA Container Toolkit
+3. 模型文件是否已预下载（`models/` 目录非空）
+4. 查看 Dokploy 平台构建日志定位具体错误

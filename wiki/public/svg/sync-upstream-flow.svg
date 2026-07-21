@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 140" role="img">
+  <title>FunASR 上游仓库同步流程</title>
+  <desc>FunASR 官方仓库 → funasr-deploy 部署仓库 → Docker 镜像重新构建</desc>
+  <style>
+    text { font-family: "Inter", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif; }
+    .th { font-size: 14px; font-weight: 500; }
+    .ts { font-size: 12px; font-weight: 400; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#898781" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="140" fill="#FCFAF5"/>
+
+  <!-- Box 1: FunASR Official (amber) -->
+  <rect x="40" y="40" width="168" height="60" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+  <text class="th" x="124" y="62" text-anchor="middle" dominant-baseline="central" fill="#633806">FunASR 官方</text>
+  <text class="ts" x="124" y="82" text-anchor="middle" dominant-baseline="central" fill="#854F0B">modelscope/FunASR</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="208" y1="70" x2="220" y2="70" stroke="#898781" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Box 2: Deploy Repo (teal) -->
+  <rect x="226" y="40" width="168" height="60" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+  <text class="th" x="310" y="62" text-anchor="middle" dominant-baseline="central" fill="#085041">部署仓库</text>
+  <text class="ts" x="310" y="82" text-anchor="middle" dominant-baseline="central" fill="#0F6E56">fushenguang/funasr</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="394" y1="70" x2="406" y2="70" stroke="#898781" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Box 3: Docker Image (green) -->
+  <rect x="412" y="40" width="168" height="60" rx="8" fill="#E7F4E4" stroke="#3B8A44" stroke-width="1"/>
+  <text class="th" x="496" y="62" text-anchor="middle" dominant-baseline="central" fill="#245C2A">Docker 镜像</text>
+  <text class="ts" x="496" y="82" text-anchor="middle" dominant-baseline="central" fill="#3B8A44">重新构建 · 部署</text>
+</svg>

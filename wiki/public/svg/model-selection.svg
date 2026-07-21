@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 340" role="img">
+  <title>FunASR RTX3060 12GB 模型选择方案</title>
+  <desc>场景选择（离线/高精度/流式）与显存分配对照</desc>
+  <style>
+    text { font-family: "Inter", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif; }
+    .th { font-size: 14px; font-weight: 500; }
+    .ts { font-size: 12px; font-weight: 400; }
+    .band-label { font-size: 12px; font-weight: 400; fill: #6B6A66; }
+  </style>
+  <rect x="0" y="0" width="680" height="340" fill="#FCFAF5"/>
+
+  <!-- Left band: Scene selection -->
+  <rect x="40" y="40" width="320" height="200" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+  <text class="band-label" x="200" y="62" text-anchor="middle">场景选择</text>
+  <rect x="60" y="72" width="280" height="44" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+  <text class="th" x="200" y="94" text-anchor="middle" dominant-baseline="central" fill="#085041">HTTP 文件转写</text>
+  <rect x="60" y="132" width="280" height="44" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+  <text class="th" x="200" y="154" text-anchor="middle" dominant-baseline="central" fill="#3C3489">高精度离线转写</text>
+  <rect x="60" y="192" width="280" height="44" rx="6" fill="#FAECE7" stroke="#993C1D" stroke-width="1"/>
+  <text class="th" x="200" y="214" text-anchor="middle" dominant-baseline="central" fill="#712B13">实时流式</text>
+
+  <!-- Right band: Memory allocation -->
+  <rect x="376" y="40" width="264" height="200" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+  <text class="band-label" x="508" y="62" text-anchor="middle">显存分配 (RTX3060 12GB)</text>
+  <rect x="396" y="72" width="224" height="36" rx="6" fill="#E7F4E4" stroke="#3B8A44" stroke-width="1"/>
+  <text class="th" x="508" y="90" text-anchor="middle" dominant-baseline="central" fill="#245C2A">SenseVoice ~1.5GB</text>
+  <rect x="396" y="116" width="224" height="36" rx="6" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+  <text class="th" x="508" y="134" text-anchor="middle" dominant-baseline="central" fill="#0C447C">Paraformer ~2.0GB</text>
+  <rect x="396" y="160" width="224" height="36" rx="6" fill="#FCE9F1" stroke="#B84A7D" stroke-width="1"/>
+  <text class="th" x="508" y="178" text-anchor="middle" dominant-baseline="central" fill="#83224F">标点 ~0.5GB</text>
+  <rect x="396" y="204" width="224" height="28" rx="6" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+  <text class="ts" x="508" y="218" text-anchor="middle" dominant-baseline="central" fill="#854F0B">剩余可用 ~7.9GB</text>
+
+  <!-- Bottom: Models detail -->
+  <rect x="40" y="256" width="600" height="74" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+  <text class="band-label" x="340" y="278" text-anchor="middle">默认推荐方案 · RTX3060 GPU</text>
+  <rect x="60" y="286" width="168" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+  <text class="th" x="144" y="304" text-anchor="middle" dominant-baseline="central" fill="#085041">SenseVoiceSmall</text>
+  <rect x="246" y="286" width="168" height="36" rx="6" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+  <text class="th" x="330" y="304" text-anchor="middle" dominant-baseline="central" fill="#0C447C">~1.5GB · 170× 实时</text>
+  <rect x="432" y="286" width="168" height="36" rx="6" fill="#E7F4E4" stroke="#3B8A44" stroke-width="1"/>
+  <text class="th" x="516" y="304" text-anchor="middle" dominant-baseline="central" fill="#245C2A">CER 7.81%</text>
+</svg>

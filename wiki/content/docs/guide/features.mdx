@@ -1,0 +1,49 @@
+---
+title: FunASR 支持的功能
+description: FunASR 语音识别工具箱的完整能力矩阵
+---
+
+## 能力总览
+
+FunASR 是一个**工业级端到端语音识别工具箱**，按场景提供组合方案。
+
+![FunASR 语音识别工具箱能力总览](/svg/funasr-capabilities.svg)
+
+## 核心功能矩阵
+
+| 功能 | 说明 | 对应模型 |
+|------|------|----------|
+| **离线 ASR** | 音频文件转文本，支持时间戳 | SenseVoiceSmall / Paraformer / Fun-ASR-Nano |
+| **流式 ASR** | 实时语音逐块识别 | Paraformer-streaming / Fun-ASR-Nano |
+| **多语种识别** | 中/英/日/韩/粤等 | SenseVoiceSmall (5语种) / Fun-ASR-MLT-Nano (31语种) |
+| **中文方言** | 7 种方言 + 26 种口音 | Fun-ASR-Nano |
+| **VAD** | 语音活动检测，自动切分静音 | FSMN-VAD |
+| **标点恢复** | 自动添加中英文标点 | CT-Transformer |
+| **说话人分离** | 识别不同说话人并标注 | CAM++ |
+| **情感识别** | 识别语音中的情感标签 | emotion2vec+large / SenseVoiceSmall |
+| **音频事件** | 检测笑声、掌声、咳嗽等 | SenseVoiceSmall 内建 |
+
+## 性能对比
+
+根据官方 [184 条长音频评测](https://modelscope.github.io/FunASR/zh/benchmark.html)（共 192 分钟）：
+
+| 模型 | 中文 CER↓ | GPU 速度 | CPU 速度 |
+|------|-----------|----------|----------|
+| **Fun-ASR-Nano** (vLLM) | 8.20% | **340×** 实时 | — |
+| **SenseVoice-Small** | 7.81% | **170×** 实时 | **17×** 实时 |
+| **Paraformer-Large** | 10.18% | **120×** 实时 | **15×** 实时 |
+| Whisper-large-v3 | 20.02% | 13× 实时 | ❌ |
+
+> **对比 Whisper：** SenseVoiceSmall 在 CPU 上（17×）比 Whisper 在 GPU 上（13×）还快。
+
+## 部署方式
+
+| 方式 | 适用场景 | 命令 |
+|------|----------|------|
+| Python SDK | 开发测试 | `AutoModel(model="iic/SenseVoiceSmall")` |
+| CLI 工具 | 批量转写 | `funasr audio.wav --output-format json` |
+| OpenAI API | 生产服务 | `funasr-server --model sensevoice --device cuda` |
+| Docker | 容器化部署 | `docker compose up -d` |
+| llama.cpp | CPU/边缘 | 无需 GPU/Python，单二进制运行 |
+
+> 来源：[FunASR 官方 README](https://github.com/modelscope/FunASR/blob/main/README_zh.md)

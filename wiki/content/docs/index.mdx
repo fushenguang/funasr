@@ -1,13 +1,42 @@
 ---
-title: Hello World
-description: Your first document
+title: FunASR 部署指南
+description: 生产级 FunASR 语音识别服务部署文档
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+import { Card, Cards } from 'fumadocs-ui/components/card';
 
-## What is Next?
+## 服务架构概览
+
+![FunASR Docker Compose 部署架构](/svg/funasr-architecture.svg)
+
+## 快速导航
 
 <Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
+  <Card
+    title="使用指南"
+    description="了解 FunASR 支持的功能和 OpenAI 兼容接口配置"
+    href="/docs/guide"
+  />
+  <Card
+    title="升级和配置指南"
+    description="如何同步上游仓库，以及针对 RTX3060(12GB) 的模型选择"
+    href="/docs/upgrade"
+  />
+  <Card
+    title="部署指南"
+    description="Docker Compose 和 Dokploy 两种部署方式的完整步骤"
+    href="/docs/deploy"
+  />
 </Cards>
+
+## 适用环境
+
+| 资源 | 最低要求 | 推荐配置 |
+|------|----------|----------|
+| GPU | NVIDIA GPU + CUDA | RTX3060(12GB) 或更高 |
+| 显存 | ≥8GB | ≥12GB |
+| 内存 | ≥8GB | ≥16GB |
+| 磁盘 | ≥20GB | ≥50GB |
+| 系统 | Linux (Ubuntu 20.04+) | Ubuntu 22.04+ |
+
+> 参考：[FunASR 官方文档](https://github.com/modelscope/FunASR/blob/main/README_zh.md)

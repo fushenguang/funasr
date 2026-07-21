@@ -1,0 +1,72 @@
+---
+title: 模型选择指南（RTX3060 12GB）
+description: 针对中/英文高精度语音识别场景的模型推荐
+---
+
+## 推荐方案总览
+
+针对 **RTX3060 (12GB)** 显卡和中/英文高精度场景，根据官方[模型选择指南](https://github.com/modelscope/FunASR/blob/main/docs/model_selection_zh.md)的推荐：
+
+![FunASR RTX3060 12GB 模型选择方案](/svg/model-selection.svg)
+
+## 决策矩阵
+
+根据官方模型选择指南和 RTX3060 硬件条件：
+
+| 场景 | 推荐模型 | 显存占用 | 精度 (中文CER) | 速度 |
+|------|----------|----------|----------------|------|
+| **默认方案** | SenseVoiceSmall | ~1.5GB | 7.81% | 170× 实时 |
+| 纯中文生产 | Paraformer-Large + VAD + 标点 | ~2.5GB | 10.18% | 120× 实时 |
+| 实时流式 | Paraformer-Streaming | ~2.0GB | — | 低延迟 |
+| LLM 高精度 | Fun-ASR-Nano | ~4GB | 8.20% | 340× (vLLM) |
+
+## HTTP API 配置（当前部署）
+
+```yaml
+command: >-
+  funasr-server
+  --model sensevoice
+  --device cuda
+  --port 8000
+  --host 0.0.0.0
+```
+
+**SenseVoiceSmall** 是官方默认推荐，兼顾：
+- 中/英/日/韩/粤 五语种识别
+- 内建情感标签和音频事件检测
+- 170× 实时速度
+- 仅 1.5GB 显存，RTX3060 可运行 3+ 实例
+
+## WebSocket 配置（当前部署）
+
+**2pass 模式**组合了 4 个模型：
+
+| 模型 | 用途 | 显存占用 |
+|------|------|----------|
+| SenseVoiceSmall | 离线 ASR 纠错 | ~1.5GB |
+| Paraformer-Large (Online) | 流式实时识别 | ~2.0GB |
+| FSMN-VAD | 语音活动检测 | ~0.1GB |
+| CT-Transformer | 标点恢复 | ~0.5GB |
+| **合计** | | **~4.1GB** |
+
+## 多实例扩展
+
+RTX3060 12GB 可以运行多个 API 实例：
+
+```bash
+# 每个 API 实例 ~1.5GB 显存
+# 12GB 可跑 3-4 个实例（留 buffer）
+docker compose up -d --scale funasr-api=3
+```
+
+## 模型切换
+
+如需切换模型，修改 `.env` 文件：
+
+```bash
+# 从 SenseVoice 切换到 Paraformer
+# 修改 docker-compose.yml 的 command：
+--model paraformer
+```
+
+> **来源：** [FunASR 官方模型选择指南](https://github.com/modelscope/FunASR/blob/main/docs/model_selection_zh.md) · [官方 README 性能评测](https://github.com/modelscope/FunASR/blob/main/README_zh.md)

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 420" role="img">
+  <title>FunASR Speech Recognition Capabilities</title>
+  <style>
+    text { font-family: "Inter", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif; }
+    .band-label { font-size: 12px; font-weight: 400; fill: #6B6A66; }
+    .t  { font-size: 14px; font-weight: 400; fill: #3D3B37; }
+    .th { font-size: 14px; font-weight: 500; }
+    .ts { font-size: 12px; font-weight: 400; }
+  </style>
+  <rect x="0" y="0" width="680" height="420" fill="#FCFAF5"/>
+  <rect x="40" y="40" width="600" height="80" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+  <text class="band-label" x="340" y="62" text-anchor="middle">Core ASR</text>
+  <rect x="60" y="72" width="174" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+  <text class="th" x="147" y="90" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Offline ASR</text>
+  <rect x="253" y="72" width="174" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+  <text class="th" x="340" y="90" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Streaming ASR</text>
+  <rect x="446" y="72" width="174" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+  <text class="th" x="533" y="90" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Multilingual / Dialect</text>
+  <rect x="40" y="135" width="600" height="112" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+  <text class="band-label" x="340" y="157" text-anchor="middle">Enhancements</text>
+  <rect x="60" y="167" width="128" height="36" rx="6" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+  <text class="th" x="124" y="185" text-anchor="middle" dominant-baseline="central" fill="#0C447C">VAD</text>
+  <rect x="203" y="167" width="128" height="36" rx="6" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+  <text class="th" x="267" y="185" text-anchor="middle" dominant-baseline="central" fill="#0C447C">Punctuation</text>
+  <rect x="346" y="167" width="128" height="36" rx="6" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+  <text class="th" x="410" y="185" text-anchor="middle" dominant-baseline="central" fill="#0C447C">Speaker Diarization</text>
+  <rect x="489" y="167" width="128" height="36" rx="6" fill="#E6F1FB" stroke="#185FA5" stroke-width="1"/>
+  <text class="th" x="553" y="185" text-anchor="middle" dominant-baseline="central" fill="#0C447C">Audio Events</text>
+  <rect x="60" y="212" width="128" height="28" rx="6" fill="#FCE9F1" stroke="#B84A7D" stroke-width="1"/>
+  <text class="ts" x="124" y="226" text-anchor="middle" dominant-baseline="central" fill="#83224F">FSMN-VAD</text>
+  <rect x="203" y="212" width="128" height="28" rx="6" fill="#FCE9F1" stroke="#B84A7D" stroke-width="1"/>
+  <text class="ts" x="267" y="226" text-anchor="middle" dominant-baseline="central" fill="#83224F">CT-Transformer</text>
+  <rect x="346" y="212" width="128" height="28" rx="6" fill="#FCE9F1" stroke="#B84A7D" stroke-width="1"/>
+  <text class="ts" x="410" y="226" text-anchor="middle" dominant-baseline="central" fill="#83224F">CAM++</text>
+  <rect x="489" y="212" width="128" height="28" rx="6" fill="#FCE9F1" stroke="#B84A7D" stroke-width="1"/>
+  <text class="ts" x="553" y="226" text-anchor="middle" dominant-baseline="central" fill="#83224F">Laughter / Applause</text>
+  <rect x="40" y="262" width="600" height="80" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1"/>
+  <text class="band-label" x="340" y="284" text-anchor="middle">API + Deployment</text>
+  <rect x="60" y="294" width="174" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+  <text class="th" x="147" y="312" text-anchor="middle" dominant-baseline="central" fill="#085041">OpenAI Compatible API</text>
+  <rect x="253" y="294" width="174" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1"/>
+  <text class="th" x="340" y="312" text-anchor="middle" dominant-baseline="central" fill="#085041">HTTP / WebSocket</text>
+  <rect x="446" y="294" width="174" height="36" rx="6" fill="#FAECE7" stroke="#993C1D" stroke-width="1"/>
+  <text class="th" x="533" y="312" text-anchor="middle" dominant-baseline="central" fill="#712B13">llama.cpp Edge</text>
+  <text class="t" x="340" y="390" text-anchor="middle" fill="#6B6A66">FunASR - Industrial End-to-End Speech Recognition</text>
+</svg>

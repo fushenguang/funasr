@@ -1,0 +1,88 @@
+---
+title: OpenAI Compatible 语音识别配置
+description: 如何使用 OpenAI 兼容接口接入 FunASR 语音识别服务
+---
+
+## 接口概览
+
+本服务与 OpenAI Audio API 兼容，可使用 OpenAI 官方 SDK 直接接入。
+
+![FunASR OpenAI Compatible 接口流程](/svg/openai-compatible-flow.svg)
+
+## 连接参数
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| **Base URL** | `http://<server-ip>/v1` | 服务统一入口 |
+| **API Key** | `funasr-internal` | 内网固定密钥（Nginx 自动注入） |
+| **Model** | `sensevoice` | 默认模型（中/英/日/韩/粤） |
+
+> **内网免配置：** Nginx 统一网关自动注入 `Authorization: Bearer funasr-internal`，客户端不需要显式携带 API Key。
+
+## Python SDK 接入
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://<server-ip>/v1",
+    api_key="not-needed",  # Nginx 自动注入
+)
+
+# 发送音频文件转写
+result = client.audio.transcriptions.create(
+    model="sensevoice",
+    file=open("meeting.wav", "rb"),
+    response_format="verbose_json",
+)
+
+print(result.text)
+```
+
+## cURL 测试
+
+```bash
+# 健康检查
+curl http://<server-ip>/health
+
+# 语音转写
+curl http://<server-ip>/v1/audio/transcriptions \
+  -F file=@sample.wav \
+  -F model=sensevoice \
+  -F response_format=verbose_json
+
+# 查看可用模型列表
+curl http://<server-ip>/v1/models
+```
+
+## 可用模型别名
+
+根据官方 [API 别名定义](https://github.com/modelscope/FunASR/blob/main/docs/model_selection_zh.md)：
+
+| Alias | 底层模型 | 适用场景 |
+|-------|----------|----------|
+| `sensevoice` | `iic/SenseVoiceSmall` | **默认推荐** — 多语种 ASR + 情感 + 音频事件 |
+| `paraformer` | `paraformer-zh` + VAD + 标点 | 纯中文生产流量 |
+| `paraformer-en` | `paraformer-en` + VAD | 英文轻量场景 |
+| `fun-asr-nano` | `FunAudioLLM/Fun-ASR-Nano-2512` | LLM-based ASR（中/英/日/方言） |
+
+## 响应格式
+
+支持标准 OpenAI Audio API 响应格式：
+
+| `response_format` | 返回内容 |
+|---|---|
+| `json` | `{"text": "转写文本..."}` |
+| `verbose_json` | 包含 `text` + `segments` 的详细结果 |
+| `srt` | SRT 字幕格式 |
+| `vtt` | WebVTT 字幕格式 |
+
+## WebSocket 实时流
+
+```
+ws://<server-ip>/ws
+```
+
+参考 [FunASR WebSocket 客户端文档](https://github.com/modelscope/FunASR/blob/main/runtime/docs/SDK_advanced_guide_online_zh.md) 了解实时流式接入的完整协议。
+
+> 来源：[FunASR 官方部署文档](https://github.com/modelscope/FunASR/blob/main/README_zh.md) · [模型选择指南](https://github.com/modelscope/FunASR/blob/main/docs/model_selection_zh.md)
