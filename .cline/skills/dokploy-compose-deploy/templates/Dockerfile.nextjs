@@ -1,0 +1,38 @@
+# apps/web/Dockerfile (or apps/admin/Dockerfile) — Next.js standalone multi-stage build
+# Requires next.config.js: module.exports = { output: 'standalone' }
+# Replace <FILTER_NAME> with the pnpm filter name (e.g. @myproject/web)
+# Replace <APP_DIR> with the app directory (e.g. apps/web or apps/admin)
+
+FROM node:20-alpine AS base
+RUN corepack enable pnpm
+
+# ---- install deps ----
+FROM base AS deps
+WORKDIR /app
+# Copy manifests only — layer-cached until lockfile changes
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY <APP_DIR>/package.json ./<APP_DIR>/
+# Copy any shared package manifests that <APP_DIR> depends on
+COPY packages/*/package.json ./packages/*/
+RUN pnpm install --frozen-lockfile
+
+# ---- build ----
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+# Build-time env vars go here as ARG (not in .env — that file is gitignored and not COPY'd)
+# ARG NEXT_PUBLIC_API_URL
+# ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+RUN pnpm --filter <FILTER_NAME> build
+
+# ---- runtime ----
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+# standalone output contains its own node_modules subset
+COPY --from=builder /app/<APP_DIR>/.next/standalone ./
+COPY --from=builder /app/<APP_DIR>/.next/static ./<APP_DIR>/.next/static
+COPY --from=builder /app/<APP_DIR>/public ./<APP_DIR>/public
+EXPOSE 3000
+CMD ["node", "<APP_DIR>/server.js"]

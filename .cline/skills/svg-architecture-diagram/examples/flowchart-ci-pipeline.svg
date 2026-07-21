@@ -1,0 +1,140 @@
+<svg width="100%" viewBox="0 0 680 444" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>Example flowchart: CI pipeline</title>
+  <desc>Sample flowchart diagram demonstrating the warm/muted design system: a linear CI pipeline from push to notify.</desc>
+  <style>
+/* ── v5 Claude Editorial · light (flat solid fills · 1px hairline borders · no opacity/gradient/shadow) ── */
+:root, :host {
+  --svg-font: "Anthropic Sans", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif;
+  --svg-text-primary: #3D3B37; --svg-text-secondary: #6B6A66; --svg-arr: #898781; --svg-canvas: #FCFAF5;
+  --band-fill: #F1EFE8; --band-stroke: #5F5E5A;
+  --c-purple-fill: #EEEDFE; --c-purple-bg: #EEEDFE; --c-purple-stroke: #534AB7; --c-purple-bd: #534AB7; --c-purple-th: #3C3489; --c-purple-h: #3C3489; --c-purple-ts: #534AB7; --c-purple-s: #534AB7; --c-purple-band: #F1EFE8; --c-purple-ring: #5F5E5A;
+  --c-teal-fill: #E1F5EE; --c-teal-bg: #E1F5EE; --c-teal-stroke: #0F6E56; --c-teal-bd: #0F6E56; --c-teal-th: #085041; --c-teal-h: #085041; --c-teal-ts: #0F6E56; --c-teal-s: #0F6E56; --c-teal-band: #F1EFE8; --c-teal-ring: #5F5E5A;
+  --c-blue-fill: #E6F1FB; --c-blue-bg: #E6F1FB; --c-blue-stroke: #185FA5; --c-blue-bd: #185FA5; --c-blue-th: #0C447C; --c-blue-h: #0C447C; --c-blue-ts: #185FA5; --c-blue-s: #185FA5; --c-blue-band: #F1EFE8; --c-blue-ring: #5F5E5A;
+  --c-coral-fill: #FAECE7; --c-coral-bg: #FAECE7; --c-coral-stroke: #993C1D; --c-coral-bd: #993C1D; --c-coral-th: #712B13; --c-coral-h: #712B13; --c-coral-ts: #993C1D; --c-coral-s: #993C1D; --c-coral-band: #F1EFE8; --c-coral-ring: #5F5E5A;
+  --c-amber-fill: #FAEEDA; --c-amber-bg: #FAEEDA; --c-amber-stroke: #854F0B; --c-amber-bd: #854F0B; --c-amber-th: #633806; --c-amber-h: #633806; --c-amber-ts: #854F0B; --c-amber-s: #854F0B; --c-amber-band: #F1EFE8; --c-amber-ring: #5F5E5A;
+  --c-gray-fill: #F1EFE8; --c-gray-bg: #F1EFE8; --c-gray-stroke: #A8A69E; --c-gray-bd: #A8A69E; --c-gray-th: #4A4945; --c-gray-h: #4A4945; --c-gray-ts: #6B6A66; --c-gray-s: #6B6A66; --c-gray-band: #F1EFE8; --c-gray-ring: #5F5E5A;
+  --c-green-fill: #E7F4E4; --c-green-bg: #E7F4E4; --c-green-stroke: #3B8A44; --c-green-bd: #3B8A44; --c-green-th: #245C2A; --c-green-h: #245C2A; --c-green-ts: #3B8A44; --c-green-s: #3B8A44; --c-green-band: #F1EFE8; --c-green-ring: #5F5E5A;
+  --c-pink-fill: #FCE9F1; --c-pink-bg: #FCE9F1; --c-pink-stroke: #B84A7D; --c-pink-bd: #B84A7D; --c-pink-th: #83224F; --c-pink-h: #83224F; --c-pink-ts: #B84A7D; --c-pink-s: #B84A7D; --c-pink-band: #F1EFE8; --c-pink-ring: #5F5E5A;
+  --c-red-fill: #FBE9E7; --c-red-bg: #FBE9E7; --c-red-stroke: #C0392B; --c-red-bd: #C0392B; --c-red-th: #7E2018; --c-red-h: #7E2018; --c-red-ts: #C0392B; --c-red-s: #C0392B; --c-red-band: #F1EFE8; --c-red-ring: #5F5E5A;
+}
+/* ── dark: standalone .svg viewing ── */
+@media (prefers-color-scheme: dark) {
+  :root, :host {
+    --svg-font: "Anthropic Sans", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif;
+    --svg-text-primary: #E8E4DC; --svg-text-secondary: #A8A49C; --svg-arr: #7C7A74; --svg-canvas: #1A1815;
+    --band-fill: #232019; --band-stroke: #8A8880;
+    --c-purple-fill: #23213A; --c-purple-bg: #23213A; --c-purple-stroke: #8B82D6; --c-purple-bd: #8B82D6; --c-purple-th: #CFCBF5; --c-purple-h: #CFCBF5; --c-purple-ts: #A9A2E6; --c-purple-s: #A9A2E6; --c-purple-band: #232019; --c-purple-ring: #8A8880;
+    --c-teal-fill: #17302A; --c-teal-bg: #17302A; --c-teal-stroke: #4FA98E; --c-teal-bd: #4FA98E; --c-teal-th: #B6E4D3; --c-teal-h: #B6E4D3; --c-teal-ts: #6FC0A6; --c-teal-s: #6FC0A6; --c-teal-band: #232019; --c-teal-ring: #8A8880;
+    --c-blue-fill: #162A3A; --c-blue-bg: #162A3A; --c-blue-stroke: #5A93C8; --c-blue-bd: #5A93C8; --c-blue-th: #BEDAF0; --c-blue-h: #BEDAF0; --c-blue-ts: #7FB0DC; --c-blue-s: #7FB0DC; --c-blue-band: #232019; --c-blue-ring: #8A8880;
+    --c-coral-fill: #3A241A; --c-coral-bg: #3A241A; --c-coral-stroke: #C87551; --c-coral-bd: #C87551; --c-coral-th: #F0C4AE; --c-coral-h: #F0C4AE; --c-coral-ts: #D89675; --c-coral-s: #D89675; --c-coral-band: #232019; --c-coral-ring: #8A8880;
+    --c-amber-fill: #352915; --c-amber-bg: #352915; --c-amber-stroke: #C79A4C; --c-amber-bd: #C79A4C; --c-amber-th: #EBD6A0; --c-amber-h: #EBD6A0; --c-amber-ts: #D4B472; --c-amber-s: #D4B472; --c-amber-band: #232019; --c-amber-ring: #8A8880;
+    --c-gray-fill: #26241E; --c-gray-bg: #26241E; --c-gray-stroke: #8A8880; --c-gray-bd: #8A8880; --c-gray-th: #DAD6CC; --c-gray-h: #DAD6CC; --c-gray-ts: #A8A49C; --c-gray-s: #A8A49C; --c-gray-band: #232019; --c-gray-ring: #8A8880;
+    --c-green-fill: #1E3320; --c-green-bg: #1E3320; --c-green-stroke: #5AA860; --c-green-bd: #5AA860; --c-green-th: #C0E4C0; --c-green-h: #C0E4C0; --c-green-ts: #7FC084; --c-green-s: #7FC084; --c-green-band: #232019; --c-green-ring: #8A8880;
+    --c-pink-fill: #34202B; --c-pink-bg: #34202B; --c-pink-stroke: #C86F98; --c-pink-bd: #C86F98; --c-pink-th: #F0C6DA; --c-pink-h: #F0C6DA; --c-pink-ts: #D897B4; --c-pink-s: #D897B4; --c-pink-band: #232019; --c-pink-ring: #8A8880;
+    --c-red-fill: #3A211D; --c-red-bg: #3A211D; --c-red-stroke: #C56A5D; --c-red-bd: #C56A5D; --c-red-th: #F0C2BA; --c-red-h: #F0C2BA; --c-red-ts: #D8938A; --c-red-s: #D8938A; --c-red-band: #232019; --c-red-ring: #8A8880;
+  }
+}
+/* ── dark: wiki in-site theme toggle ── */
+html.dark {
+  --svg-font: "Anthropic Sans", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif;
+  --svg-text-primary: #E8E4DC; --svg-text-secondary: #A8A49C; --svg-arr: #7C7A74; --svg-canvas: #1A1815;
+  --band-fill: #232019; --band-stroke: #8A8880;
+  --c-purple-fill: #23213A; --c-purple-bg: #23213A; --c-purple-stroke: #8B82D6; --c-purple-bd: #8B82D6; --c-purple-th: #CFCBF5; --c-purple-h: #CFCBF5; --c-purple-ts: #A9A2E6; --c-purple-s: #A9A2E6; --c-purple-band: #232019; --c-purple-ring: #8A8880;
+  --c-teal-fill: #17302A; --c-teal-bg: #17302A; --c-teal-stroke: #4FA98E; --c-teal-bd: #4FA98E; --c-teal-th: #B6E4D3; --c-teal-h: #B6E4D3; --c-teal-ts: #6FC0A6; --c-teal-s: #6FC0A6; --c-teal-band: #232019; --c-teal-ring: #8A8880;
+  --c-blue-fill: #162A3A; --c-blue-bg: #162A3A; --c-blue-stroke: #5A93C8; --c-blue-bd: #5A93C8; --c-blue-th: #BEDAF0; --c-blue-h: #BEDAF0; --c-blue-ts: #7FB0DC; --c-blue-s: #7FB0DC; --c-blue-band: #232019; --c-blue-ring: #8A8880;
+  --c-coral-fill: #3A241A; --c-coral-bg: #3A241A; --c-coral-stroke: #C87551; --c-coral-bd: #C87551; --c-coral-th: #F0C4AE; --c-coral-h: #F0C4AE; --c-coral-ts: #D89675; --c-coral-s: #D89675; --c-coral-band: #232019; --c-coral-ring: #8A8880;
+  --c-amber-fill: #352915; --c-amber-bg: #352915; --c-amber-stroke: #C79A4C; --c-amber-bd: #C79A4C; --c-amber-th: #EBD6A0; --c-amber-h: #EBD6A0; --c-amber-ts: #D4B472; --c-amber-s: #D4B472; --c-amber-band: #232019; --c-amber-ring: #8A8880;
+  --c-gray-fill: #26241E; --c-gray-bg: #26241E; --c-gray-stroke: #8A8880; --c-gray-bd: #8A8880; --c-gray-th: #DAD6CC; --c-gray-h: #DAD6CC; --c-gray-ts: #A8A49C; --c-gray-s: #A8A49C; --c-gray-band: #232019; --c-gray-ring: #8A8880;
+  --c-green-fill: #1E3320; --c-green-bg: #1E3320; --c-green-stroke: #5AA860; --c-green-bd: #5AA860; --c-green-th: #C0E4C0; --c-green-h: #C0E4C0; --c-green-ts: #7FC084; --c-green-s: #7FC084; --c-green-band: #232019; --c-green-ring: #8A8880;
+  --c-pink-fill: #34202B; --c-pink-bg: #34202B; --c-pink-stroke: #C86F98; --c-pink-bd: #C86F98; --c-pink-th: #F0C6DA; --c-pink-h: #F0C6DA; --c-pink-ts: #D897B4; --c-pink-s: #D897B4; --c-pink-band: #232019; --c-pink-ring: #8A8880;
+  --c-red-fill: #3A211D; --c-red-bg: #3A211D; --c-red-stroke: #C56A5D; --c-red-bd: #C56A5D; --c-red-th: #F0C2BA; --c-red-h: #F0C2BA; --c-red-ts: #D8938A; --c-red-s: #D8938A; --c-red-band: #232019; --c-red-ring: #8A8880;
+}
+/* ── wiki light override (fixes "system dark + wiki light" conflict) ── */
+html:not(.dark) {
+  --svg-font: "Anthropic Sans", -apple-system, "system-ui", "Segoe UI", Arial, sans-serif;
+  --svg-text-primary: #3D3B37; --svg-text-secondary: #6B6A66; --svg-arr: #898781; --svg-canvas: #FCFAF5;
+  --band-fill: #F1EFE8; --band-stroke: #5F5E5A;
+  --c-purple-fill: #EEEDFE; --c-purple-bg: #EEEDFE; --c-purple-stroke: #534AB7; --c-purple-bd: #534AB7; --c-purple-th: #3C3489; --c-purple-h: #3C3489; --c-purple-ts: #534AB7; --c-purple-s: #534AB7; --c-purple-band: #F1EFE8; --c-purple-ring: #5F5E5A;
+  --c-teal-fill: #E1F5EE; --c-teal-bg: #E1F5EE; --c-teal-stroke: #0F6E56; --c-teal-bd: #0F6E56; --c-teal-th: #085041; --c-teal-h: #085041; --c-teal-ts: #0F6E56; --c-teal-s: #0F6E56; --c-teal-band: #F1EFE8; --c-teal-ring: #5F5E5A;
+  --c-blue-fill: #E6F1FB; --c-blue-bg: #E6F1FB; --c-blue-stroke: #185FA5; --c-blue-bd: #185FA5; --c-blue-th: #0C447C; --c-blue-h: #0C447C; --c-blue-ts: #185FA5; --c-blue-s: #185FA5; --c-blue-band: #F1EFE8; --c-blue-ring: #5F5E5A;
+  --c-coral-fill: #FAECE7; --c-coral-bg: #FAECE7; --c-coral-stroke: #993C1D; --c-coral-bd: #993C1D; --c-coral-th: #712B13; --c-coral-h: #712B13; --c-coral-ts: #993C1D; --c-coral-s: #993C1D; --c-coral-band: #F1EFE8; --c-coral-ring: #5F5E5A;
+  --c-amber-fill: #FAEEDA; --c-amber-bg: #FAEEDA; --c-amber-stroke: #854F0B; --c-amber-bd: #854F0B; --c-amber-th: #633806; --c-amber-h: #633806; --c-amber-ts: #854F0B; --c-amber-s: #854F0B; --c-amber-band: #F1EFE8; --c-amber-ring: #5F5E5A;
+  --c-gray-fill: #F1EFE8; --c-gray-bg: #F1EFE8; --c-gray-stroke: #A8A69E; --c-gray-bd: #A8A69E; --c-gray-th: #4A4945; --c-gray-h: #4A4945; --c-gray-ts: #6B6A66; --c-gray-s: #6B6A66; --c-gray-band: #F1EFE8; --c-gray-ring: #5F5E5A;
+  --c-green-fill: #E7F4E4; --c-green-bg: #E7F4E4; --c-green-stroke: #3B8A44; --c-green-bd: #3B8A44; --c-green-th: #245C2A; --c-green-h: #245C2A; --c-green-ts: #3B8A44; --c-green-s: #3B8A44; --c-green-band: #F1EFE8; --c-green-ring: #5F5E5A;
+  --c-pink-fill: #FCE9F1; --c-pink-bg: #FCE9F1; --c-pink-stroke: #B84A7D; --c-pink-bd: #B84A7D; --c-pink-th: #83224F; --c-pink-h: #83224F; --c-pink-ts: #B84A7D; --c-pink-s: #B84A7D; --c-pink-band: #F1EFE8; --c-pink-ring: #5F5E5A;
+  --c-red-fill: #FBE9E7; --c-red-bg: #FBE9E7; --c-red-stroke: #C0392B; --c-red-bd: #C0392B; --c-red-th: #7E2018; --c-red-h: #7E2018; --c-red-ts: #C0392B; --c-red-s: #C0392B; --c-red-band: #F1EFE8; --c-red-ring: #5F5E5A;
+}
+  text { font-family: var(--svg-font); }
+  text.t  { font-size: 14px; font-weight: 400; fill: var(--svg-text-primary); }
+  text.th { font-size: 14px; font-weight: 500; fill: var(--svg-text-primary); }
+  text.ts { font-size: 12px; font-weight: 400; fill: var(--svg-text-secondary); }
+  .band-label { font-family: var(--svg-font); font-size: 12px; font-weight: 400; fill: var(--svg-text-secondary); }
+  .arr    { stroke: var(--svg-arr); stroke-width: 1.5px; fill: none; }
+  .leader { stroke: var(--svg-arr); stroke-width: 1px; stroke-dasharray: 4 3; fill: none; }
+  rect.band { fill: var(--band-fill); stroke: var(--band-stroke); stroke-width: 1px; }
+  .c-purple rect, .c-purple circle, .c-purple ellipse { fill: var(--c-purple-fill); stroke: var(--c-purple-stroke); stroke-width: 1px; }
+  .c-purple text.th, .c-purple text.t { fill: var(--c-purple-th); }
+  .c-purple text.ts { fill: var(--c-purple-ts); }
+  .c-teal rect, .c-teal circle, .c-teal ellipse { fill: var(--c-teal-fill); stroke: var(--c-teal-stroke); stroke-width: 1px; }
+  .c-teal text.th, .c-teal text.t { fill: var(--c-teal-th); }
+  .c-teal text.ts { fill: var(--c-teal-ts); }
+  .c-blue rect, .c-blue circle, .c-blue ellipse { fill: var(--c-blue-fill); stroke: var(--c-blue-stroke); stroke-width: 1px; }
+  .c-blue text.th, .c-blue text.t { fill: var(--c-blue-th); }
+  .c-blue text.ts { fill: var(--c-blue-ts); }
+  .c-coral rect, .c-coral circle, .c-coral ellipse { fill: var(--c-coral-fill); stroke: var(--c-coral-stroke); stroke-width: 1px; }
+  .c-coral text.th, .c-coral text.t { fill: var(--c-coral-th); }
+  .c-coral text.ts { fill: var(--c-coral-ts); }
+  .c-amber rect, .c-amber circle, .c-amber ellipse { fill: var(--c-amber-fill); stroke: var(--c-amber-stroke); stroke-width: 1px; }
+  .c-amber text.th, .c-amber text.t { fill: var(--c-amber-th); }
+  .c-amber text.ts { fill: var(--c-amber-ts); }
+  .c-gray rect, .c-gray circle, .c-gray ellipse { fill: var(--c-gray-fill); stroke: var(--c-gray-stroke); stroke-width: 1px; }
+  .c-gray text.th, .c-gray text.t { fill: var(--c-gray-th); }
+  .c-gray text.ts { fill: var(--c-gray-ts); }
+  .c-green rect, .c-green circle, .c-green ellipse { fill: var(--c-green-fill); stroke: var(--c-green-stroke); stroke-width: 1px; }
+  .c-green text.th, .c-green text.t { fill: var(--c-green-th); }
+  .c-green text.ts { fill: var(--c-green-ts); }
+  .c-pink rect, .c-pink circle, .c-pink ellipse { fill: var(--c-pink-fill); stroke: var(--c-pink-stroke); stroke-width: 1px; }
+  .c-pink text.th, .c-pink text.t { fill: var(--c-pink-th); }
+  .c-pink text.ts { fill: var(--c-pink-ts); }
+  .c-red rect, .c-red circle, .c-red ellipse { fill: var(--c-red-fill); stroke: var(--c-red-stroke); stroke-width: 1px; }
+  .c-red text.th, .c-red text.t { fill: var(--c-red-th); }
+  .c-red text.ts { fill: var(--c-red-ts); }
+</style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="444" fill="var(--svg-canvas)"/>
+
+  <g class="c-gray">
+    <rect x="240" y="40" width="200" height="44" rx="8"/>
+    <text class="th" x="340" y="62" text-anchor="middle" dominant-baseline="central">git push</text>
+  </g>
+  <line x1="340" y1="84" x2="340" y2="120" class="arr" marker-end="url(#arrow)"/>
+
+  <g class="c-blue">
+    <rect x="240" y="120" width="200" height="44" rx="8"/>
+    <text class="th" x="340" y="142" text-anchor="middle" dominant-baseline="central">Build</text>
+  </g>
+  <line x1="340" y1="164" x2="340" y2="200" class="arr" marker-end="url(#arrow)"/>
+
+  <g class="c-blue">
+    <rect x="240" y="200" width="200" height="44" rx="8"/>
+    <text class="th" x="340" y="222" text-anchor="middle" dominant-baseline="central">Test</text>
+  </g>
+  <line x1="340" y1="244" x2="340" y2="280" class="arr" marker-end="url(#arrow)"/>
+
+  <g class="c-blue">
+    <rect x="240" y="280" width="200" height="44" rx="8"/>
+    <text class="th" x="340" y="302" text-anchor="middle" dominant-baseline="central">Deploy</text>
+  </g>
+  <line x1="340" y1="324" x2="340" y2="360" class="arr" marker-end="url(#arrow)"/>
+
+  <g class="c-purple">
+    <rect x="240" y="360" width="200" height="44" rx="8"/>
+    <text class="th" x="340" y="382" text-anchor="middle" dominant-baseline="central">Notify</text>
+  </g>
+</svg>

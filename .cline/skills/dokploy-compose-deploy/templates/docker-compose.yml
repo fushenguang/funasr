@@ -1,0 +1,78 @@
+# deploy/docker-compose.yml — monorepo compose template for Dokploy
+# Services: api (internal only) + web (public) + admin (public)
+# Replace <PORT_*> and <YOUR_*> placeholders before deploying.
+
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - API_SECRET=${API_SECRET}
+    # No published ports — web/admin reach api via internal DNS: http://api:<PORT_API>
+    networks:
+      - internal
+    healthcheck:
+      # Must use 127.0.0.1 not localhost — Alpine resolves localhost to IPv6 ::1
+      # node:alpine has no wget; use node one-liner instead
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:<PORT_API>/healthz',r=>process.exit(r.statusCode===200?0:1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      # Internal URL for server-side requests — do NOT expose api port publicly
+      - API_INTERNAL_URL=http://api:<PORT_API>
+    ports:
+      - "<PORT_WEB_HOST>:3000"
+    depends_on:
+      api:
+        # condition: service_completed_successfully is NOT supported on all Docker versions — use service_healthy
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/api/health',r=>process.exit(r.statusCode===200?0:1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      # Next.js cold start is slow — keep start_period at 60s minimum
+      start_period: 60s
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - API_INTERNAL_URL=http://api:<PORT_API>
+    ports:
+      - "<PORT_ADMIN_HOST>:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/api/health',r=>process.exit(r.statusCode===200?0:1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  internal:
+    driver: overlay
