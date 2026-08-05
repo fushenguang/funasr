@@ -151,7 +151,6 @@ async def lifespan(app: FastAPI):
     import torch
 
     from cosyvoice.cli.cosyvoice import CosyVoice2
-    from cosyvoice.utils.file_utils import load_wav
 
     # 探测真实设备而不是回显配置值，见 _device 的定义处说明
     _device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -199,9 +198,18 @@ async def lifespan(app: FastAPI):
             )
             continue
         try:
-            prompt_16k = load_wav(wav_path, 16000)
-            # 参数顺序: (prompt_text, prompt_speech_16k, zero_shot_spk_id)
-            _model.add_zero_shot_spk(prompt_text, prompt_16k, voice_id)
+            # 部署服务器实测踩坑（2026-08-05）：add_zero_shot_spk 的第二个参数
+            # 官方签名叫 prompt_wav，必须是**文件路径字符串**，不是预加载的波形
+            # tensor——内部 frontend_zero_shot -> _extract_speech_feat 会自己
+            # 用 load_wav(prompt_wav, 24000) 重新按需要的采样率加载一次（且和
+            # 说话人向量提取用的采样率不是同一个，由 CosyVoice 内部各自处理，
+            # 不需要也不应该由调用方预先 resample）。旧代码在这里手动
+            # load_wav(wav_path, 16000) 传了个 tensor 进去，导致
+            # torchaudio.load 收到 tensor 而不是路径直接 TypeError，
+            # 音色注册在服务器上 100% 复现失败。对照官方 example.py 的用法
+            # （add_zero_shot_spk(text, './asset/xxx.wav', spk_id)）确认应
+            # 该直接传路径。
+            _model.add_zero_shot_spk(prompt_text, wav_path, voice_id)
             VOICE_SEEDS[voice_id] = (wav_path, prompt_text)
             log.info("已注册命名音色: %s (%s)", voice_id, wav_path)
         except Exception:
