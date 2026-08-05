@@ -17,6 +17,11 @@ logs/**/*.log.*
 !logs/api/.gitkeep
 !logs/runtime/.gitkeep
 !logs/system/.gitkeep
+!logs/tts/.gitkeep
+
+# TTS 参考音频（体积大 + 可能涉及肖像权/声音权，与 models/ 同样不入库）
+voices/*.wav
+!voices/.gitkeep
 
 # TLS 证书
 nginx/certs/

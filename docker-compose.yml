@@ -40,6 +40,7 @@ services:
     depends_on:
       - funasr-api
       - funasr-ws
+      - cosyvoice-tts
     healthcheck:
       # 💡 修复点：把 /health 改为 /
       # wget -q -O /dev/null 表示静默请求并丢弃输出，只要 HTTP 状态码是 200 就返回成功
@@ -126,6 +127,38 @@ services:
       start_period: 180s
     networks:
       - backend
+
+  # ── CosyVoice2 TTS（自建 OpenAI 兼容 /v1/audio/speech）────────
+  cosyvoice-tts:
+    <<: *gpu
+    build:
+      context: ./services/cosyvoice
+      dockerfile: Dockerfile
+    image: cosyvoice:${COSYVOICE_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    expose:
+      - "8100"
+    volumes:
+      - ./models:/root/.cache/modelscope/hub   # 与 funasr-api/ws 共用同一份 modelscope 缓存卷
+      - ./voices:/opt/voices:ro                # 服务端预注册命名音色的参考音频（只读）
+      - ./logs/tts:/app/logs
+    environment:
+      - MODELSCOPE_CACHE=/root/.cache/modelscope/hub
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}           # server.py 读这个变量，不传的话 .env 里改级别不生效
+      - COSYVOICE_DEVICE=${FUNASR_DEVICE:-cuda}
+      - COSYVOICE_MODEL_DIR=${COSYVOICE_MODEL_DIR:-/root/.cache/modelscope/hub/iic__CosyVoice2-0.5B}
+      # 命名音色 "xiaoxi"：server.py 按 <NAME>_PROMPT_WAV / <NAME>_PROMPT_TEXT
+      # 成对扫描环境变量自动注册，新增音色只需追加一对同名变量，无需改代码
+      - XIAOXI_PROMPT_WAV=${XIAOXI_PROMPT_WAV:-/opt/voices/xiaoxi_16k.wav}
+      - XIAOXI_PROMPT_TEXT=${XIAOXI_PROMPT_TEXT:-}
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s   # CosyVoice2 模型加载 + 音色注册预留时间，参照 funasr-ws 的量级
 
   # ── 日志轮转 ────────────────────────────────────────────────
   log-rotate:

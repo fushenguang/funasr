@@ -3,10 +3,14 @@
 # download_models.sh - 从 ModelScope 预下载模型到本地
 #
 # 用法:
-#   bash scripts/download_models.sh              # 下载默认模型集
+#   bash scripts/download_models.sh              # 下载默认模型集（HTTP API + WebSocket）
 #   bash scripts/download_models.sh --ws-only    # 只下载 WebSocket Runtime 模型
 #   bash scripts/download_models.sh --api-only   # 只下载 HTTP API 模型
+#   bash scripts/download_models.sh --tts-only   # 只下载 CosyVoice2 TTS 模型
 #   bash scripts/download_models.sh --list       # 列出已下载的模型
+#
+# 注意: CosyVoice2 TTS 模型体积较大（数 GB），默认不随 API/WS 模型一起下载，
+# 需要单独执行一次 --tts-only 显式拉取（部署 TTS 服务前必须执行）。
 # ============================================================
 set -euo pipefail
 
@@ -25,15 +29,21 @@ err()  { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 # ── 解析参数 ──────────────────────────────────────────────────
 DOWNLOAD_WS=true
 DOWNLOAD_API=true
+# TTS 模型体积大（数 GB），默认不下载，需要显式 --tts-only 拉取
+DOWNLOAD_TTS=false
 LIST_ONLY=false
 
 for arg in "$@"; do
     case $arg in
-        --ws-only)  DOWNLOAD_API=false ;;
-        --api-only) DOWNLOAD_WS=false ;;
+        --ws-only)  DOWNLOAD_API=false; DOWNLOAD_TTS=false ;;
+        --api-only) DOWNLOAD_WS=false; DOWNLOAD_TTS=false ;;
+        --tts-only) DOWNLOAD_API=false; DOWNLOAD_WS=false; DOWNLOAD_TTS=true ;;
         --list)     LIST_ONLY=true ;;
         --help|-h)
-            grep '^# ' "$0" | head -12 | sed 's/^# //'
+            # 打印文件头注释块（两条 ==== 分隔线之间的内容）。
+            # 不要用 grep + head -N：注释块行数一变就会把正文里的注释
+            # 一起打印出来，而且没人会注意到 N 需要跟着改。
+            sed -n '/^# ==*$/,/^# ==*$/p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
     esac
@@ -141,6 +151,19 @@ if $DOWNLOAD_WS; then
     download_model \
         "thuduj12/fst_itn_zh" \
         "FST ITN 反文本规范化"
+fi
+
+# CosyVoice2 TTS 模型（语音合成，默认不下载，见头部用法说明）
+if $DOWNLOAD_TTS; then
+    echo ""
+    log "─ CosyVoice2 TTS 模型 ─"
+
+    # 注意: 落盘目录名是 iic__CosyVoice2-0.5B（双下划线，来自本函数的
+    # tr '/' '__'），不是 iic/CosyVoice2-0.5B 子目录。cosyvoice-tts 容器的
+    # COSYVOICE_MODEL_DIR 默认值已按这个真实路径配置，详见 .env.example。
+    download_model \
+        "iic/CosyVoice2-0.5B" \
+        "CosyVoice2 TTS（语音合成）"
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────

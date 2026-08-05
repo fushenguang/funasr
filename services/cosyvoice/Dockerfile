@@ -1,0 +1,74 @@
+# ============================================================
+# CosyVoice2-0.5B TTS 服务镜像
+#
+# 基础镜像与 services/funasr/Dockerfile 保持一致（PyTorch 2.4.0 +
+# CUDA 12.1），通过 git clone 官方仓库 + pip 安装依赖的方式集成
+# CosyVoice，尽量不修改上游代码，只新增 server.py 作为 OpenAI 兼容
+# 适配层（参照项目 "尽量不改官方代码" 的设计原则）。
+#
+# 已知坑（构建前务必确认）：
+#   1. pynini 必须用 conda-forge 预编译包，且必须在 pip 安装
+#      requirements.txt 之前装好，否则 pip 会尝试从源码编译 pynini
+#      （依赖 OpenFst，极易失败/耗时很长）。
+#   2. ttsfrd（CosyVoice 可选的高精度文本前端）只提供 cp310 专用
+#      wheel，与本镜像的 Python 版本（随 PyTorch 基础镜像，约 3.11）
+#      不匹配，这里主动跳过，退回用 requirements.txt 自带的
+#      WeTextProcessing 兜底（功能可用，精度略低于 ttsfrd）。
+#   3. 模型落盘目录是 iic__CosyVoice2-0.5B（双下划线，来自
+#      scripts/download_models.sh 的 tr '/' '__'），不是
+#      iic/CosyVoice2-0.5B 子目录，详见 server.py 启动时的校验逻辑。
+# ============================================================
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+
+# apt 换阿里云镜像（与 services/funasr/Dockerfile 一致）
+RUN sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list \
+ && sed -i 's|http://security.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list
+
+# git: clone CosyVoice 源码 + Matcha-TTS 子模块
+# curl: docker healthcheck 探活 /health
+# sox/libsox-dev: CosyVoice 音频前端依赖
+# ffmpeg: 音频编解码兜底
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl sox libsox-dev ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# pip 换清华镜像
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+ && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+
+# TODO(须服务器核实): pytorch/pytorch:*-runtime 系列镜像基于 Anaconda/Miniconda
+# 构建、通常自带 conda，但未在无 GPU 的本机验证过 `conda` 命令是否存在。
+# 若不存在，退路是改用 CosyVoice 官方 Dockerfile 的 py3.10 底座
+# （各服务本就各自独立 Dockerfile，允许不同底座，不影响其它服务）。
+#
+# pynini 必须在 pip 安装 requirements.txt 之前装好预编译包，这是头号坑：
+# pip 装 pynini 会触发从源码编译（依赖系统级 OpenFst），既慢又容易失败。
+RUN conda install -y -c conda-forge pynini==2.1.5 && conda clean -afy
+
+# 拉取 CosyVoice 官方源码（含 Matcha-TTS 子模块），不修改上游代码
+RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git /opt/CosyVoice
+
+WORKDIR /opt/CosyVoice
+
+# TODO(须服务器核实): requirements.txt 里的依赖版本能否在本镜像的 Python
+# 版本（约 3.11，随 PyTorch 2.4.0 基础镜像而定）下全部装上，本机无法验证，
+# 需要在服务器上实际 build 一次确认，若有冲突需要按报错逐个调整版本号。
+#
+# ttsfrd 跳过（见文件头说明），依赖 requirements.txt 自带的 WeTextProcessing 兜底
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir fastapi "uvicorn[standard]"
+
+# CosyVoice 源码与内置的 Matcha-TTS 子模块都需要在 PYTHONPATH 上，
+# 官方 README 与示例代码都是这么处理的
+ENV PYTHONPATH=/opt/CosyVoice:/opt/CosyVoice/third_party/Matcha-TTS
+
+COPY server.py /opt/CosyVoice/server.py
+
+RUN mkdir -p /app/logs /root/.cache/modelscope/hub
+
+EXPOSE 8100
+
+# host/port 固定，模型目录与设备通过环境变量传入（COSYVOICE_MODEL_DIR /
+# COSYVOICE_DEVICE，见 server.py parse_args 与 docker-compose.yml），
+# 与项目 "参数走 .env，不硬编码进镜像" 的约定一致
+CMD ["python", "/opt/CosyVoice/server.py"]
