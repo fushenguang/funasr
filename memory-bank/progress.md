@@ -10,6 +10,9 @@
   - 同步推理生成器通过 `asyncio.to_thread` + `asyncio.Queue` 桥接，避免卡死 event loop
   - `asyncio.Lock` 串行化 GPU 访问，覆盖整个流式产出周期，客户端断连正确释放（实测验证：`curl -m 1` 中断后锁立即释放，紧接着的新请求无需等待）
   - 实测首个音频分片延迟约 1.55s，端到端 RTF 约 0.35；详见 wiki `guide/tts-cosyvoice.mdx`「构建与部署实测记录」
+  - **2026-08-05 补测**：首包延迟在 8~227 字文本区间稳定在 1.49~1.60s，不随文本变长而线性增长（CosyVoice 官方 `text_normalize()` 内部已用 `split_paragraph()` 做等价切句），**结论是不需要在服务端再实现一层切句优化**
+  - **2026-08-05 已根治**文本前端问题：`wetext` 从 `0.0.4` 升级到 `0.1.6`（FST 资源打包进 wheel，不再依赖 ModelScope 运行时下载），容器内实测 `Normalizer(remove_erhua=False).normalize('2026年8月5日下午3点，收费128元，涨幅12.5%。')` → `'二零二六年八月五日下午三点，收费一百二十八元，涨幅百分之十二点五。'`，日志不再出现 `no frontend is avaliable`
+  - **2026-08-05 下载源国内化**：`services/cosyvoice/Dockerfile` 的 pip/conda/git 源全部改为国内镜像（阿里云 pytorch-wheels、清华 conda-forge、可选 GitHub 镜像 build arg），真实重建验证 pip 安装阶段耗时从 627.4s 降到 412.0s（约快 34%），总构建时间从约 11m51s 降到 10m27s（约快 12%）
 - [x] NVIDIA GPU 支持（`deploy.resources.reservations.devices`）
 - [x] Docker 镜像构建（`services/funasr/Dockerfile`）
   - PyTorch 2.4.0 + CUDA 12.1 基础镜像
@@ -57,7 +60,9 @@
 - [ ] 请求限流（rate limiting）
 - [ ] TTS `inference_instruct2`（指令控制情感/语速等）扩展点已在 `server.py` 留注释，本轮未实现
 - [x] ~~TTS 服务器实测（构建、显存共存、首包延迟）~~ → **2026-08-05 已在部署服务器完整实测并跑通**，见下方「已知问题」核实结论与 wiki `guide/tts-cosyvoice.mdx` 的「构建与部署实测记录」
-- [ ] TTS 文本前端（WeTextProcessing/`wetext`）运行时需要访问 ModelScope 下载资源，实测遇 403 无法完整初始化，`no frontend is avaliable`——需要配置 ModelScope 访问令牌或手工预置 `wetext` 资源文件后重新验证
+- [x] ~~TTS 文本前端（`wetext`）运行时需要访问 ModelScope 下载资源，实测遇 403 无法完整初始化，`no frontend is avaliable`~~ → **2026-08-05 已根治**：升级 `wetext` 到 `0.1.6`（资源打包进 wheel，不再依赖 ModelScope），容器内实测数字/日期/百分号归一化正确，见上方「已完成」与 wiki `guide/tts-cosyvoice.mdx`
+- [x] ~~所有下载源改为国内镜像（用户明确要求，主要市场在国内）~~ → **2026-08-05 已完成**：`services/cosyvoice/Dockerfile` 的 `requirements.txt` extra-index-url（阿里云 pytorch-wheels，删除不可达的 aiinfra 源）、conda pynini（清华 conda-forge）、git clone（新增可选 `COSYVOICE_GIT_MIRROR` build arg）均已改造并真实重建验证；基础镜像 `pytorch/pytorch:*` 保持不变（阿里云 ACR 对非官方命名空间要求鉴权，服务器 Docker daemon 已有 `registry-mirrors` 兜底），原因见 Dockerfile 头部注释
+- [ ] onnxruntime-gpu 的 CUDA 执行器加载失败，静默回退 CPU（`libcublasLt.so.11` 找不到，因为 PyPI 上的 `onnxruntime-gpu==1.18.0` 是面向 CUDA 11 的构建，镜像里只有 CUDA 12 的库）——**不影响当前生产请求路径**（该 ONNX session 只在启动时注册命名音色用一次，`/v1/audio/speech` 走预注册音色分支完全不触发），但如果未来要支持 ad-hoc zero-shot（非预注册音色）克隆，需要单独解决（换一个显式支持 cu12 的 onnxruntime-gpu 版本或来源）
 
 ### 代码清理
 - [ ] 确认 `services/openai-api/` 的用途（增强版 API vs 官方 CLI）
@@ -102,3 +107,10 @@
 | 2026-08-05 | TTS 服务在部署服务器（RTX 3060 12GB）首次实测跑通，构建阶段跳过 `tensorrt-cu12*` 与 `deepspeed` 两组依赖，不安装进镜像 | 均已对照 CosyVoice 源码确认推理路径（`load_trt=False`、非分布式训练）完全不引用；`tensorrt-cu12-libs` 依赖的 `pypi.nvidia.com`、`deepspeed` 依赖的 `nvcc`（runtime 镜像不含开发工具链）在本次部署环境下都不可用/不存在，装不上或装上就崩溃，跳过是明确更优的选择而非临时绕过 |
 | 2026-08-05 | Nginx 健康检查目标从 `http://localhost/` 改为 `http://127.0.0.1/` | 实测复现：`nginx/conf.d/funasr.conf` 只 `listen 80;`（无 IPv6），但容器内 `wget` 解析 `localhost` 优先拿到 `::1`，连接被拒绝，导致健康检查持续失败而服务本身正常；这是配置解析歧义，非本次部署服务器特有，换任何环境都会复现 |
 | 2026-08-05 | TTS 文本前端（`wetext`/WeTextProcessing）在无 ModelScope 访问令牌的环境下判定为**已知限制，暂不解决** | 运行时资源下载遇 403，`no frontend is avaliable`，文本归一化完全不可用；根治需要配置访问令牌或手工预置资源文件，超出本轮部署验证范围，留待后续按需处理 |
+| 2026-08-05 | 上一条决策被推翻：`wetext` 从 `0.0.4` 升级到 `0.1.6` 彻底解决文本前端问题，不需要 ModelScope 令牌 | 排查确认根因不是"需要令牌"这么简单，而是 `pengzhendong/wetext` 作为 ModelScope **个人命名空间**仓库要求登录态下载（对照 `iic/*` 官方命名空间模型同一接口正常，排除网络/限流），且这条限制在其官方最新版本里已经被解决——`wetext` 从 0.0.7 起把 FST 资源直接打进 wheel，不再依赖 ModelScope；比申请令牌更彻底（运行时零联网），且不违反"不改 CosyVoice 上游代码"的原则（升级的是 pip 依赖版本，不是改代码） |
+| 2026-08-05 | `services/cosyvoice/Dockerfile` 的 `requirements.txt` 两条 `--extra-index-url` 分别改写：`download.pytorch.org` 换阿里云 pytorch-wheels 镜像；`aiinfra.pkgs.visualstudio.com` 直接删除不找替代 | 前者已实测阿里云镜像有对应 cp311+cu121 wheel；后者实测返回 `401`（需要微软内部凭据，任何镜像站都代理不了这种鉴权），且确认现有 `onnxruntime-gpu` 本来就不是从这条线装的，删除不改变安装结果，只是去掉一次必然失败的探测 |
+| 2026-08-05 | conda 装 pynini 改用清华 conda-forge 镜像 + `--override-channels`，不再退回 `-c conda-forge`（国外）或触碰默认 `defaults` 频道 | 已实测清华镜像 repodata 里存在所需的 `pynini==2.1.5` py311 构建，与 conda-forge 官方源等价；`--override-channels` 避免 conda 在解析依赖时仍尝试连国外的默认频道 |
+| 2026-08-05 | git clone CosyVoice 新增可选 `COSYVOICE_GIT_MIRROR` build arg，但**默认值仍是直连 GitHub**，不强制走镜像 | git clone 相比 pip/conda 的大体积二进制传输对国内网络通常更友好，多数环境不需要镜像；镜像可用性变化快，写死在默认值里反而更脆弱。已实测推荐值 `https://ghfast.top/https://github.com/` 可用（含 `third_party/Matcha-TTS` 子模块），作为环境不稳定时的可选覆盖项 |
+| 2026-08-05 | 基础镜像 `pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime` **不改为国内镜像** | 已实测阿里云容器镜像服务（ACR）对 `pytorch/pytorch` 这类非官方命名空间镜像要求鉴权（`GET /v2/pytorch/pytorch/tags/list` 返回 `401`），没有可公开替换的国内 tag；部署服务器 Docker daemon 已配置 `registry-mirrors`（daocloud/nju.edu.cn/dockerproxy 等），`docker pull` 已透明加速，Dockerfile 层面硬编码某个第三方镜像 registry 主机名反而更脆弱（这类服务可用性变化快） |
+| 2026-08-05 | 不在服务端实现客户端可见的"切句优化"来降低 TTS 首包延迟 | 实测 8~227 字文本首包延迟稳定在 1.49~1.60s，不随文本变长线性增长，因为 CosyVoice 官方 `text_normalize()` 内部已用 `split_paragraph()`（`token_max_n=80`）做等价切句、逐段流式产出；自己再切一遍没有延迟收益，反而会因多次 HTTP 往返增加总耗时 |
+| 2026-08-05 | 新增 wiki 文档 `guide/agent-tts-integration.mdx`，独立于 `guide/tts-cosyvoice.mdx` | 前者面向接入方（AI Agent/开发者），聚焦请求契约、错误码、流式实现边界、并发限制，信息密度优先；后者是部署方视角的产品说明+实测记录，两者读者不同，合并会让部署文档过长、也会让接入方要在业务说明里翻找技术契约 |

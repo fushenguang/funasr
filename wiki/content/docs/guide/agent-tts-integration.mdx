@@ -1,0 +1,419 @@
+---
+title: AI Agent 接入 TTS（流式合成完整指南）
+description: 面向接入本服务的 AI Agent / 后端开发者的 CosyVoice TTS 完整技术文档：契约、流式实现、延迟实测、并发限制
+---
+
+本页面向**接入本服务的 AI Agent 或负责编写接入代码的开发者**，不是产品介绍。内容是完整的请求/响应契约、
+可直接复制运行的代码、以及流式实现的真实边界（含"做不到什么"）。业务背景与音色配置见
+[TTS 语音合成接入（CosyVoice2）](/docs/guide/tts-cosyvoice)，本页不重复。
+
+## 1. 端点与端口
+
+```
+POST http://<host>:<port>/v1/audio/speech
+GET  http://<host>:<port>/v1/audio/voices
+GET  http://<host>:<port>/health
+```
+
+<Callout type="warn" title="端口不是 80，且每个环境都可能不同">
+端口来自部署环境 `.env` 里的 `NGINX_HTTP_PORT`，**默认值是 80，但不能假设**。
+
+**当前实测部署（`192.168.31.50`）用的是 `9080`**（宿主机 80 端口被同机 Dokploy 的 traefik 占用），
+即完整地址是：
+
+```
+http://192.168.31.50:9080/v1/audio/speech
+```
+
+接入任何新环境前，先确认实际端口，不要硬编码 80 或照抄上面这个值：
+
+```bash
+grep NGINX_HTTP_PORT .env          # 在部署主机上执行
+# 或
+docker compose port nginx 80       # 查看实际宿主机映射
+```
+
+代码里把端口做成配置项（环境变量 / 启动参数），不要写死在源码里。
+</Callout>
+
+不需要客户端携带鉴权头——Nginx 网关会用 `proxy_set_header Authorization "Bearer funasr-internal";`
+**无条件覆盖**转发给后端的 `Authorization` 头，无论客户端发了什么（包括不发）。也就是说：
+自己传的 `Authorization` 会被网关静默替换，不会生效，不用花时间在客户端做鉴权处理。
+后端服务 `cosyvoice-tts` 自身也没有任何鉴权校验逻辑——这是内网部署的信任边界设计，**不要把这个地址暴露到公网**。
+
+## 2. 请求契约
+
+```json
+POST /v1/audio/speech
+Content-Type: application/json
+
+{
+  "model": "cosyvoice2",
+  "input": "要合成的文本",
+  "voice": "xiaoxi",
+  "response_format": "pcm",
+  "speed": 1.0,
+  "stream": true
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 约束与说明 |
+|------|------|:---:|--------|------------|
+| `model` | string | 否 | `"cosyvoice2"` | 只做记录用，服务端不校验取值 |
+| `input` | string | **是** | 无 | 待合成文本，不能为空/纯空白 |
+| `voice` | string | **是** | 无 | 必须是已注册的命名音色 id，见 §5 动态发现 |
+| `response_format` | string | 否 | `"pcm"` | **只支持 `"pcm"`**，其余取值一律拒绝（没有 `mp3`/`wav`/`opus`） |
+| `speed` | float | 否 | `1.0` | `0.25` ~ `4.0`（含边界），与 OpenAI 语义一致 |
+| `stream` | bool | 否 | `true` | `true`=chunked 流式返回；`false`=服务端攒完整段再一次性返回，见 §4 |
+
+请求体校验分两层，报错方式不同，接入时要分别处理：
+
+- **JSON Schema 层**（FastAPI/Pydantic 自动完成，请求体还没进业务逻辑）：`input`/`voice` 字段完全缺失、
+  或字段类型不对（例如 `speed` 传了字符串 `"fast"`）→ **`422 Unprocessable Entity`**，body 是 Pydantic
+  的标准错误结构（`detail` 是数组，每项含 `loc`/`msg`/`type`）。
+- **业务校验层**（`server.py` 里的 `_validate_speech_request`，字段类型都对但取值不合法）→
+  **`400 Bad Request`**，body 是 `{"detail": "人类可读的中文错误信息"}`。见下表。
+
+## 3. 错误码完整清单
+
+| 状态码 | 触发条件 | `detail` 内容（原文） |
+|--------|---------|------------------------|
+| `422` | `input` 或 `voice` 字段完全缺失；或字段类型不匹配（如 `speed` 不是数字） | Pydantic 标准校验错误结构 |
+| `400` | `input` 为空字符串或全是空白字符 | `input 不能为空` |
+| `400` | `response_format` 不是 `"pcm"` | `仅支持 response_format=pcm（裸 PCM16LE mono @ 24000Hz），收到: '<你传的值>'` |
+| `400` | `voice` 不在已注册音色列表里 | `未注册的音色: '<你传的值>'，可用音色: [已注册音色列表]` |
+| `400` | `speed` 不在 `0.25~4.0` 区间（含传 `0` 或负数） | `speed 需在 0.25~4.0 之间，收到: <你传的值>` |
+| `500` | 推理过程中出现未捕获异常（GPU OOM、模型内部错误等） | 仅在 `stream=false` 时能拿到干净的 500，见下方说明 |
+| 连接中断，无 HTTP 状态码 | `stream=true` 时，200 响应头和部分音频字节已经发出后才发生的错误 | 见下方说明 |
+
+<Callout type="warn" title="流式模式下的错误没有干净的状态码——这是协议本身的限制，不是本服务的缺陷">
+HTTP 的状态行只能发一次。`stream=true` 时，服务端一旦开始产出第一个音频分片就已经提交了 `200`，
+如果合成中途才失败（比如显存不足），客户端看到的是**连接被重置/提前关闭**，而不是一个带错误信息的
+状态码。接入时必须把"流提前中断"当成一种独立的错误态来处理（比如约定音频总字节数应为偶数、记录预期
+文本长度做粗略校验、或直接把任何非正常关闭都当失败重试）。
+
+如果你的场景更看重"错误处理干净"而不是"越快听到声音越好"，用 `stream=false`：这种模式下服务端会把
+整段音频攒完再返回，任何推理失败都会在发送响应前被捕获，客户端能拿到干净的 `500`。这是一个真实的权衡，
+不是"总是用 stream=true"就对。
+</Callout>
+
+## 4. 响应契约
+
+**`stream=true`**（默认）：
+
+```
+200 OK
+Content-Type: application/octet-stream
+Transfer-Encoding: chunked
+X-Request-ID: <uuid>
+```
+
+Body 是若干次 HTTP chunk 陆续发出的裸 PCM16LE 字节流，**分片边界不对齐到采样点以外的任何语义单位**——
+分片大小由 CosyVoice 内部的生成节奏决定，不保证每片时长一致，客户端只应该把所有分片按到达顺序拼接，
+不要假设分片数量或大小。
+
+**`stream=false`**：同样是 `200`，但一次性返回完整 body（`Content-Length` 已知，非 chunked），字节内容
+与流式模式下把所有分片拼接后完全一致，只是等待时间从"首包延迟"变成"全量合成时间"。
+
+两种模式返回的音频数据完全一致，区别只在传输时机，方便你按场景选择。
+
+## 5. 音色发现
+
+不要硬编码音色 id，服务端支持动态增减命名音色（新增音色只需要运维在 `.env` 加一对
+`<NAME>_PROMPT_WAV`/`<NAME>_PROMPT_TEXT` 变量，不改代码），接入时先查询：
+
+```bash
+curl -s http://192.168.31.50:9080/v1/audio/voices
+# {"object": "list", "data": [{"id": "xiaoxi", "object": "voice"}]}
+```
+
+```python
+import requests
+
+voices = requests.get("http://192.168.31.50:9080/v1/audio/voices", timeout=10).json()
+available = [v["id"] for v in voices["data"]]
+```
+
+`/health` 额外返回 `voices` 字段（已注册音色 id 列表）、`model_loaded`（模型是否加载完成）、
+`device`/`device_requested`（实际运行设备 vs 配置请求的设备，两者不一致说明 GPU 没挂上，正跑在 CPU，
+延迟会差一个数量级）。Agent 启动时建议先探测一次 `/health`，`model_loaded=false` 时不要发合成请求
+（模型可能还在冷启动加载中，见 §8 的 79.3s 冷启动耗时）。
+
+## 6. 音频格式：裸 PCM，没有任何容器头
+
+响应 body 是 **PCM16LE / 24000Hz / mono / 无 WAV 头**的原始采样数据，不是 `.wav` 文件，不能直接双击
+播放或喂给期望完整文件的解码器。三个参数缺一不可：
+
+- 采样格式：16-bit **有符号**整数，小端序（`s16le`）
+- 采样率：24000 Hz（固定，服务端如果模型实际采样率不是这个值会直接拒绝启动，见 `server.py` 里
+  `_model.sample_rate != SAMPLE_RATE` 的校验，所以这个数字不会静默漂移）
+- 声道数：1（mono）
+
+需要标准 WAV 文件时自己补 44 字节头（`wave` 模块，无需额外依赖）：
+
+```python
+import wave
+
+def pcm_to_wav(pcm_bytes: bytes, wav_path: str, sample_rate: int = 24000) -> None:
+    with wave.open(wav_path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)  # 16-bit = 2 bytes
+        w.setframerate(sample_rate)
+        w.writeframes(pcm_bytes)
+```
+
+## 7. 流式实现现状：输出流式，输入不是——如实说明
+
+这是接入前最容易搞错的一点，分两半说清楚：
+
+### 7.1 我们实现的：流式输出
+
+客户端**一次性**提交完整文本（`input` 是一个普通 JSON 字符串，不是分片提交），服务端合成的同时把
+音频**分片流式返回**——不用等整段合成完才拿到第一个字节，首包延迟只对应第一个分片的合成时间，不是
+全文合成时间。这是当前唯一支持的流式方向：输出流式，输入整体提交。
+
+### 7.2 CosyVoice2 原生支持流式文本输入，但本服务没有暴露它
+
+容器内 CosyVoice 源码（`cosyvoice/cli/frontend.py` 与 `cosyvoice/cli/cosyvoice.py`）证实模型底层其实
+支持把 `tts_text` 传成一个 Python generator（边生成文本边喂给模型合成），具体在：
+
+- `cosyvoice/cli/cosyvoice.py:91`，`inference_zero_shot(self, tts_text, ...)` 的 `tts_text` 参数接受
+  generator；
+- `cosyvoice/cli/frontend.py:127-129`，`text_normalize()` 显式检测 `isinstance(text, Generator)`，
+  检测到就直接 `return [text]` 并打印日志 `get tts_text generator, will skip text_normalize!`——
+  也就是说**传 generator 时文本归一化（数字/日期/单位读法转换等）完全不会执行**，这不是本服务的限制，
+  是 CosyVoice 官方实现本身在流式文本输入模式下的行为：归一化需要看到完整句子才能正确处理（比如判断
+  "3" 后面有没有跟量词决定读"三"还是"叁"），逐 token 流式喂入天然做不到。
+
+**本服务没有实现这条路径**，原因是协议层面的：`POST /v1/audio/speech` 沿用 OpenAI Audio Speech 的
+JSON body 契约，一个 HTTP 请求的 body 在发出前必须是完整的、已知长度的 JSON——`input` 字段不可能一边
+生成一边追加。要支持真正的流式文本输入（比如 LLM 边生成回复边喂给 TTS 边出声，实现端到端最低延迟），
+唯一可行的协议形态是**另开一个 WebSocket 端点**，让客户端能持续 `send()` 文本片段、服务端持续
+`recv()` 并转成 generator 喂给 `inference_zero_shot`。这不是当前实现范围，如果你的场景需要这个能力，
+需要作为新功能单独排期（涉及协议设计、鉴权、跟 `funasr-ws` 现有 WebSocket 的关系等），不要假设它已经
+存在——直接往 `/v1/audio/speech` 发 chunked/streaming 的请求 body 不会被理解成流式文本输入，只会在
+读取 body 阶段卡住或直接报错。
+
+## 8. 实测延迟（RTX 3060 12GB，2026-08-05）
+
+| 指标 | 实测值 | 说明 |
+|------|--------|------|
+| 首个音频分片到达 | **≈1.55s** | 约 40 字长句，Python 直连服务实测。**不能用 `curl` 的 `time_starttransfer` 测这个数字**——那只反映 HTTP 响应头提交时刻，几乎为 0，是个已踩过的测量陷阱，见 §9 的正确测法 |
+| 端到端 RTF | **≈0.35** | 约 3 倍实时速度（10.08s 音频，3.57s 总耗时），模型内部逐分片 RTF 在 0.30~0.45 波动 |
+| 模型冷启动（容器刚起） | 79.3s | 含 `/health` 从 `loading` 变成 `ok` 的全过程 |
+| 模型热启动（同镜像重启，OS 页缓存命中） | 5.5s | |
+| 短句非流式等效（"你好，我是小羲。"，4 字） | 1.71s 请求耗时 / 2.00s 音频（RTF≈0.85） | 短句场景 RTF 更差，是正常现象：固定开销（模型 warmup、说话人特征查找）在短音频里占比更高 |
+
+<Callout type="info" title="不需要自己做切句优化——已实测验证，首包延迟与文本长度基本无关">
+提交长文本前，直觉上可能会想自己先按句子切开、分批调用来降低首包延迟。**实测证明这一步没有必要**：
+
+| 文本长度 | 首包延迟 | 总耗时 | 音频时长 | RTF |
+|---------|---------|--------|---------|-----|
+| 8 字 | 0.87s | 0.87s | 1.92s | 0.46 |
+| 29 字（含数字/日期） | 1.60s | 2.39s | 7.40s | 0.32 |
+| 44 字 | 1.50s | 2.73s | 8.40s | 0.33 |
+| 99 字 | 1.49s | 7.71s | 21.60s | 0.36 |
+| 227 字 | 1.53s | 18.63s | 49.36s | 0.38 |
+
+首包延迟在 8 字到 227 字的区间里稳定在 **1.5s 左右**，不随文本变长而线性增长。原因是 CosyVoice 官方
+`text_normalize()` 内部已经用 `split_paragraph()`（`token_max_n=80, token_min_n=60`）把长文本切成
+约 60~80 token 一段，`inference_zero_shot` 逐段合成并流式产出——**服务端已经在做等价的"切句优化"**，
+只是切分点在 CosyVoice 内部而不是我们的 API 层。自己在客户端再切一遍文本分批调用，不会让首包更快，
+反而会因为多次 HTTP 往返（连接建立、GPU 锁排队，见 §10）让总耗时变差，不建议这么做。
+
+如果你的场景首包延迟仍然觉得不够快，1.5s 左右这个数字是当前模型规模 + fp16 推理在这块 GPU 上的合成
+下限，不是切句能解决的问题；真要继续压缩需要动模型层面的优化（量化、TensorRT 等），不在本页范围内。
+</Callout>
+
+## 9. 边收边播代码骨架
+
+正确测量首包延迟、以及边收边播，都必须**逐块读取响应流**，不能用会攒完整响应才返回的方式（包括
+`curl` 默认行为、`requests` 不设 `stream=True`、或者先 `.content` 再处理）。
+
+```python
+import time
+import requests
+
+BASE_URL = "http://192.168.31.50:9080"  # 按 §1 说明替换成实际环境的地址
+
+def synthesize_stream(text: str, voice: str = "xiaoxi", speed: float = 1.0):
+    """流式请求 TTS，逐块 yield 裸 PCM 字节，并打印首包延迟。"""
+    t0 = time.monotonic()
+    first_chunk_at = None
+
+    resp = requests.post(
+        f"{BASE_URL}/v1/audio/speech",
+        json={
+            "input": text,
+            "voice": voice,
+            "response_format": "pcm",
+            "speed": speed,
+            "stream": True,
+        },
+        stream=True,          # 关键：不设这个 requests 会等整个响应下载完才返回
+        timeout=(10, 300),    # (连接超时, 读超时)；读超时要覆盖住最长可能的合成耗时
+    )
+    resp.raise_for_status()   # 4xx/5xx 在这里抛异常，见 §3 错误码表
+
+    for chunk in resp.iter_content(chunk_size=4800):  # 4800 字节 = 100ms 音频，按需调整
+        if not chunk:
+            continue
+        if first_chunk_at is None:
+            first_chunk_at = time.monotonic() - t0
+            print(f"[首包延迟] {first_chunk_at:.3f}s")
+        yield chunk
+
+
+def synthesize_and_play(text: str, voice: str = "xiaoxi"):
+    """边收边播：把分片实时喂给 ffplay 的 stdin，不等全部下载完。
+    依赖系统已安装 ffmpeg（提供 ffplay），这是跨平台里最省事的边播方案，
+    不需要额外装 pyaudio/sounddevice 之类的 Python 音频库。
+    """
+    import subprocess
+
+    player = subprocess.Popen(
+        ["ffplay", "-f", "s16le", "-ar", "24000", "-ac", "1",
+         "-nodisp", "-autoexit", "-loglevel", "quiet", "-"],
+        stdin=subprocess.PIPE,
+    )
+    try:
+        for chunk in synthesize_stream(text, voice):
+            player.stdin.write(chunk)
+            player.stdin.flush()
+    finally:
+        player.stdin.close()
+        player.wait()
+
+
+if __name__ == "__main__":
+    synthesize_and_play("2026年8月5日下午3点，收费128元，涨幅12.5%。")
+```
+
+不想依赖 `ffplay` 的话，把 `synthesize_stream()` 的分片喂给任意支持"追加写入"的音频输出 API 都行
+（比如 `pyaudio.Stream.write()`、`sounddevice.RawOutputStream.write()`），思路一样：拿到 chunk 立刻
+写，不要攒。
+
+### WebSocket？—— 当前不适用
+
+TTS 侧目前**没有** WebSocket 端点，`websockets` 库用不上（本服务只有输出流式，见 §7；输入侧走一次性
+JSON body）。项目里另一个服务 `funasr-ws`（`ws://<host>:<port>/ws`）是**语音识别**的实时流式端点，
+跟本页讲的语音合成是两个完全独立的后端，不要混用协议假设。
+
+## 10. 并发与超时——单请求串行，容量按 1 算
+
+`cosyvoice-tts` 用一把全局 `asyncio.Lock` 串行化 GPU 访问，**同一时刻只处理一个合成请求**，锁的生命
+周期覆盖"从开始推理到这次请求流式产出结束"的全过程，不是只包住模型调用那一行。这意味着：
+
+- 把这个服务当**并发数=1** 的资源做容量规划，不要假设多个请求能并行跑得更快——第二个请求会在服务端
+  排队等锁，不是被拒绝，也不是并行退化，而是**顺序执行**。
+- **一个读取慢的客户端会拖住所有其他请求**：如果消费者不及时读取响应流（比如 Agent 进程卡住、网络
+  拥塞），TCP 层背压会一路传导到服务端的 `yield`，锁不会释放。Nginx 对上游（`cosyvoice-tts`）的
+  `proxy_read_timeout` 是 **300s**——超过这个时长上游没有新数据，Nginx 才会主动断开连接，进而触发
+  服务端 `GeneratorExit`/`CancelledError` 释放锁。也就是说最坏情况下，一个卡住的客户端能让其他所有
+  TTS 请求排队等待接近 5 分钟。
+- 接入建议：客户端自己设置比 300s 更短的读超时（比如 30~60s，按预期最长文本估算），一旦超时主动断开
+  连接（不要挂起等待）——服务端已经正确处理了客户端主动断连（`GeneratorExit`，锁立即释放，实测验证
+  过），比等 Nginx 300s 超时体验好得多。上面代码示例里的 `timeout=(10, 300)` 是"允许的上限"，不是
+  "建议值"，请按你的实际文本长度预算收紧。
+- 多个 Agent/多个并发会话共用这一个 TTS 后端时，建议在你自己的调用层再加一层排队/限流，而不是指望
+  服务端并行处理——它本来就不会并行。
+
+## 11. 最小可用客户端（含错误处理）
+
+把上面几节的要点收进一个可以直接拿去用的类：
+
+```python
+import time
+from typing import Iterator, Optional
+
+import requests
+
+
+class CosyVoiceTTSClient:
+    """CosyVoice TTS 最小客户端：音色发现 + 流式合成 + 错误分类。
+
+    用法：
+        client = CosyVoiceTTSClient("http://192.168.31.50:9080")
+        for pcm_chunk in client.speak("你好"):
+            ...  # 边收边播，见 wiki agent-tts-integration.mdx §9
+    """
+
+    def __init__(self, base_url: str, read_timeout: float = 60.0):
+        self.base_url = base_url.rstrip("/")
+        self.read_timeout = read_timeout
+        self._voices_cache: Optional[list[str]] = None
+
+    def list_voices(self, force_refresh: bool = False) -> list[str]:
+        if self._voices_cache is None or force_refresh:
+            resp = requests.get(f"{self.base_url}/v1/audio/voices", timeout=10)
+            resp.raise_for_status()
+            self._voices_cache = [v["id"] for v in resp.json()["data"]]
+        return self._voices_cache
+
+    def health(self) -> dict:
+        resp = requests.get(f"{self.base_url}/health", timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+
+    def speak(
+        self,
+        text: str,
+        voice: str = "xiaoxi",
+        speed: float = 1.0,
+        stream: bool = True,
+    ) -> Iterator[bytes]:
+        try:
+            resp = requests.post(
+                f"{self.base_url}/v1/audio/speech",
+                json={
+                    "input": text,
+                    "voice": voice,
+                    "response_format": "pcm",
+                    "speed": speed,
+                    "stream": stream,
+                },
+                stream=stream,
+                timeout=(10, self.read_timeout),
+            )
+        except requests.exceptions.ReadTimeout:
+            # 客户端自己设的超时到了：可能是卡住的合成，也可能是排队太久
+            # （见 §10 并发限制），按你的场景决定重试还是放弃
+            raise
+
+        if resp.status_code == 422:
+            # 请求体 JSON Schema 不合法（缺字段/类型错），是调用方代码 bug，
+            # 不应该重试，直接暴露给上层修 bug
+            raise ValueError(f"请求体不合法: {resp.json()}")
+        if resp.status_code == 400:
+            # 业务校验失败（空文本/未知音色/speed 越界等），同样是调用方
+            # 输入问题，不是服务端故障，也不应该重试
+            raise ValueError(f"请求参数被拒绝: {resp.json()['detail']}")
+        resp.raise_for_status()  # 剩余 4xx/5xx（包括非流式模式下的 500）
+
+        if not stream:
+            yield resp.content
+            return
+
+        try:
+            for chunk in resp.iter_content(chunk_size=4800):
+                if chunk:
+                    yield chunk
+        except requests.exceptions.ChunkedEncodingError:
+            # 见 §3：流式模式下服务端中途失败表现为连接被提前重置，
+            # 不会有干净的状态码，只能在这里当成合成失败处理
+            raise RuntimeError("TTS 流式合成中途中断，音频不完整")
+```
+
+## 12. 快速排错表
+
+| 现象 | 大概率原因 | 排查 |
+|------|-----------|------|
+| 连接直接被拒绝 | 端口错了 | 确认 `NGINX_HTTP_PORT`，见 §1 |
+| 长时间没有任何字节返回，最终超时 | 排队等 GPU 锁（§10），或模型还在冷启动 | 先查 `/health` 的 `model_loaded`；再考虑是不是有慢客户端占着锁 |
+| 一直 `400: 未注册的音色` | 音色 id 拼错，或该环境没配这个音色 | `GET /v1/audio/voices` 现查，不要硬编码 |
+| 数字/日期没有被正确读出来 | 文本前端（`wetext`）未生效，或你调用的是流式文本输入路径 | 当前实现走的是整体提交（§7.1），文本前端应该生效；如果观察到没生效，先看服务日志里是否有 `no frontend is avaliable`，那是文本前端整体不可用的信号，不是本页描述的正常路径 |
+| 收到的音频放出来是噪音 | 按错误的采样率/位深/声道解析了 PCM | 严格按 §6：`s16le / 24000Hz / mono`，没有 WAV 头 |
+| 流放到一半突然中断，没有错误信息 | 服务端中途失败，见 §3 的"流式模式下的错误没有干净的状态码" | 换 `stream=false` 定位是否是真的推理失败（会给出干净 500） |
+
+> 与 ASR 侧的关系、请求/响应示例的 cURL 版本、命名音色配置、显存与部署实测数据，见
+> [TTS 语音合成接入（CosyVoice2）](/docs/guide/tts-cosyvoice)。本页只覆盖 Agent/代码接入视角。
