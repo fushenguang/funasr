@@ -61,9 +61,25 @@ WORKDIR /opt/CosyVoice
 # PIP_CONSTRAINT 只是上限约束，不会强制安装 setuptools 本身。
 #
 # ttsfrd 跳过（见文件头说明），依赖 requirements.txt 自带的 WeTextProcessing 兜底
+#
+# 另一处网络相关的坑（部署服务器实测确认，2026-08-05）：requirements.txt 里的
+# tensorrt-cu12 / tensorrt-cu12-bindings / tensorrt-cu12-libs 是可选加速依赖，
+# 其中 tensorrt-cu12-libs 是个 "wheel_stub" 占位包，安装时会硬编码请求
+# https://pypi.nvidia.com/ 下载真正的 wheel（不走我们配置的清华镜像，也不支持
+# 覆盖）。部署服务器所在网络访问 pypi.nvidia.com（以及 download.pytorch.org、
+# aiinfra.pkgs.visualstudio.com）均是 TLS 层直接失败（SSL: wrong version
+# number，用 curl 对这几个域名单独测试也复现，是网络层面而非 pip/镜像问题），
+# 导致这一步必然装不上。
+# 已对照 CosyVoice 源码确认可以安全跳过：tensorrt 只在
+# CosyVoiceModel.load_trt() / convert_onnx_to_trt() 方法体内惰性
+# `import tensorrt`，不在任何模块顶层，而 server.py 的 lifespan() 固定传
+# CosyVoice2(..., load_trt=False)，这两个方法从不会被调用，跳过安装不影响
+# 本服务运行时行为（只是放弃一个我们本就没用的可选加速选项）。
+# 用过滤后的临时文件安装，不修改 git clone 下来的 requirements.txt 本身。
 ENV PIP_CONSTRAINT=/tmp/pip-build-constraints.txt
 RUN echo "setuptools<81" > /tmp/pip-build-constraints.txt
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN grep -vE '^tensorrt-cu12' requirements.txt > /tmp/requirements.no-trt.txt \
+ && pip install --no-cache-dir -r /tmp/requirements.no-trt.txt \
  && pip install --no-cache-dir fastapi "uvicorn[standard]"
 
 # CosyVoice 源码与内置的 Matcha-TTS 子模块都需要在 PYTHONPATH 上，
