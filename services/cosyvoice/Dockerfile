@@ -37,10 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
  && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
-# TODO(须服务器核实): pytorch/pytorch:*-runtime 系列镜像基于 Anaconda/Miniconda
-# 构建、通常自带 conda，但未在无 GPU 的本机验证过 `conda` 命令是否存在。
-# 若不存在，退路是改用 CosyVoice 官方 Dockerfile 的 py3.10 底座
-# （各服务本就各自独立 Dockerfile，允许不同底座，不影响其它服务）。
+# 已在部署服务器实测（2026-08-05）：pytorch/pytorch:*-runtime 系列镜像确实
+# 自带 conda（`conda install` 直接可用，本层实测约 79s 完成，含 conda 自身
+# 从 pkgs/main 切到 conda-forge 索引的一次性升级），不需要退路方案。
 #
 # pynini 必须在 pip 安装 requirements.txt 之前装好预编译包，这是头号坑：
 # pip 装 pynini 会触发从源码编译（依赖系统级 OpenFst），既慢又容易失败。
@@ -51,11 +50,19 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git /opt/Cosy
 
 WORKDIR /opt/CosyVoice
 
-# TODO(须服务器核实): requirements.txt 里的依赖版本能否在本镜像的 Python
-# 版本（约 3.11，随 PyTorch 2.4.0 基础镜像而定）下全部装上，本机无法验证，
-# 需要在服务器上实际 build 一次确认，若有冲突需要按报错逐个调整版本号。
+# 已在部署服务器实测（2026-08-05）：requirements.txt 里的依赖版本在本镜像
+# Python 3.11 下基本都能装，唯一的坑是 openai-whisper==20231117 ——它的
+# legacy setup.py 里直接 `import pkg_resources`，而 pip 默认给隔离构建环境
+# （pip-build-env-*/overlay）装的是当前最新 setuptools（实测 83.0.0），该
+# 版本在这个隔离 venv 场景下解析不到 pkg_resources，导致
+# "Getting requirements to build wheel" 阶段直接 ModuleNotFoundError。
+# 用 PIP_CONSTRAINT 把隔离构建环境里的 setuptools 钉在仍可用的版本
+# （<81，验证可行），不影响 requirements.txt 里其它包的版本解析——
+# PIP_CONSTRAINT 只是上限约束，不会强制安装 setuptools 本身。
 #
 # ttsfrd 跳过（见文件头说明），依赖 requirements.txt 自带的 WeTextProcessing 兜底
+ENV PIP_CONSTRAINT=/tmp/pip-build-constraints.txt
+RUN echo "setuptools<81" > /tmp/pip-build-constraints.txt
 RUN pip install --no-cache-dir -r requirements.txt \
  && pip install --no-cache-dir fastapi "uvicorn[standard]"
 
