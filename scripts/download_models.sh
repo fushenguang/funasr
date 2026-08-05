@@ -72,9 +72,26 @@ mkdir -p "$MODELS_DIR"
 log "模型将下载到: $MODELS_DIR"
 
 # ── 安装 modelscope（如果没有）────────────────────────────────
+# 较新的 Debian/Ubuntu（如 24.04 + Python 3.12）默认把系统 Python 标记为
+# PEP 668 externally-managed，直接 pip install 会报
+# "error: externally-managed-environment" 并退出非 0。这里先按常规方式装，
+# 失败后检测是不是这个原因，是的话补 --break-system-packages 重试
+# （内网部署脚本场景下可接受；更彻底的方案是用 venv，但会改变脚本对
+# 全局 python3 环境的依赖假设，暂不引入）。
 if ! python3 -c "import modelscope" &>/dev/null; then
     log "安装 modelscope..."
-    pip install modelscope --quiet
+    PIP_ERR_LOG="$(mktemp)"
+    if ! pip install modelscope --quiet 2>"$PIP_ERR_LOG"; then
+        if grep -q "externally-managed-environment" "$PIP_ERR_LOG"; then
+            warn "检测到 PEP 668 externally-managed-environment（常见于 Debian/Ubuntu 新版系统 Python），改用 --break-system-packages 重试"
+            pip install modelscope --quiet --break-system-packages
+        else
+            cat "$PIP_ERR_LOG" >&2
+            rm -f "$PIP_ERR_LOG"
+            err "modelscope 安装失败"
+        fi
+    fi
+    rm -f "$PIP_ERR_LOG"
 fi
 
 # ── 下载函数 ──────────────────────────────────────────────────
