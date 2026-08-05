@@ -61,7 +61,7 @@
 
 ## 已知问题
 
-1. **`services/` 目录存在冗余**：`openai-api/` 和 `runtime-ws/` 未被 `docker-compose.yml` 引用，与 `funasr/` 功能重叠
+1. ~~**`services/` 目录存在冗余**~~ → 2026-08-04 定性为**备选方案（保留但未启用）**，已在 README 与 wiki 中显式标注，不再作为待办
 2. **WebSocket 无鉴权**：`funasr-ws` 直接对外暴露，没有认证机制
 3. **env 变量 `$$` 转义**：docker-compose.yml 中 `funasr-ws` 的 command 使用 `$${}` 语法（Docker Compose 变量转义），需要注意 `.env` 变量是否被正确解析
 
@@ -73,3 +73,6 @@
 | 初始 | Nginx 注入固定 API key | 内网环境，简化接入 |
 | 初始 | WebSocket 不使用 Nginx 鉴权 | WebSocket 鉴权需在应用层处理 |
 | 2026-07-21 | 初始化 Cline Memory Bank | 确保跨会话上下文连续性 |
+| 2026-08-04 | `services/openai-api/` 与 `services/runtime-ws/` 保留为**备选方案**，不删除、不启用 | 官方 CLI 方案维护成本更低；两个目录在需要结构化日志或自定义 WebSocket 行为时仍有价值 |
+| 2026-08-04 | 修正 README 与 wiki 中的结构化 API 日志描述 | 原文档描述的 `request_id`/`rtf` 等字段来自未启用的 `services/openai-api/server.py`，与实际运行的官方 `funasr-server` CLI 不符，会误导按文档排查日志的运维人员 |
+| 2026-08-04 | 配置 Claude Code 工程环境（`CLAUDE.md` + `.claude/`），并加入 `.gitignore` | 本地 AI 协作配置，不随仓库分发 |

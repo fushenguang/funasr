@@ -115,11 +115,17 @@ bash scripts/logs.sh --stats
 | 日志 | 路径 | 格式 |
 |------|------|------|
 | Nginx 访问日志 | `logs/nginx/access.log` | JSON |
-| API 服务日志 | `logs/api/funasr-api.log` | 结构化 JSON |
+| API 服务日志 | 容器 stdout（`bash scripts/logs.sh api`） | 文本 |
 | WebSocket Runtime | `logs/runtime/` | 文本 |
 | Docker 容器日志 | Docker json-file driver | 50MB 轮转 × 10 |
 
-> 每条 API 日志记录：`request_id`、`filename`、`file_size_mb`、`model`、`audio_duration_s`、`inference_time_s`、`rtf`、`text_length`、`status_code`
+`logs/api/` 目录已挂载进容器，但官方 `funasr-server` CLI 默认输出到 stdout，该目录当前为预留。
+
+<Callout type="warn" title="结构化 API 日志需要切换服务实现">
+`request_id`、`file_size_mb`、`audio_duration_s`、`inference_time_s`、`rtf`、`text_length`
+这类字段来自 `services/openai-api/server.py`（自建增强版 API），**该服务当前未被 `docker-compose.yml` 启用**。
+现行部署使用官方 `funasr-server` CLI，不产出上述字段；需要这类可观测性时才切换实现。
+</Callout>
 
 ## 网络拓扑
 

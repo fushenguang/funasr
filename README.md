@@ -11,11 +11,19 @@ funasr-deploy/
 ├── .gitignore
 │
 ├── services/
-│   └── openai-api/
-│       ├── Dockerfile          # API 服务镜像
-│       ├── server.py           # 增强版 API 服务（带结构化日志）
-│       ├── logging_config.py   # JSON 日志配置
-│       └── requirements.txt
+│   ├── funasr/                 # ✅ 当前使用（docker-compose.yml 引用此目录）
+│   │   ├── Dockerfile          # 统一镜像：funasr-api 与 funasr-ws 共用
+│   │   └── ensure_wss_server.sh
+│   │
+│   ├── openai-api/             # ⚠️ 备选方案，当前未启用
+│   │   ├── Dockerfile          # 增强版 API 服务镜像
+│   │   ├── server.py           # 自建 API（带结构化 JSON 日志）
+│   │   ├── logging_config.py
+│   │   └── requirements.txt
+│   │
+│   └── runtime-ws/             # ⚠️ 备选方案，当前未启用
+│       ├── Dockerfile          # 内联版 WebSocket 服务
+│       └── funasr_wss_server.py
 │
 ├── nginx/
 │   ├── nginx.conf              # Nginx 主配置（JSON 访问日志）
@@ -115,10 +123,14 @@ bash scripts/logs.sh nginx --since 1h
 
 日志文件位置：
 - Nginx 访问日志（JSON）：`logs/nginx/access.log`
-- API 服务日志（JSON）：`logs/api/funasr-api.log`
+- API 服务日志：官方 `funasr-server` CLI 输出到容器 stdout，用 `bash scripts/logs.sh api` 查看；`logs/api/` 目录已挂载但当前为预留
 - WebSocket Runtime 日志：`logs/runtime/`
 
-每条 API 日志记录：`request_id`, `filename`, `file_size_mb`, `model`, `audio_duration_s`, `inference_time_s`, `rtf`, `text_length`, `status_code`
+> **关于结构化 API 日志**
+> `request_id`、`file_size_mb`、`audio_duration_s`、`inference_time_s`、`rtf`、`text_length` 等字段来自
+> `services/openai-api/server.py`（自建增强版 API）。**该服务当前未被 `docker-compose.yml` 启用**，
+> 现行部署跑的是官方 `funasr-server` CLI，不产出这些字段。
+> 如需这类可观测性，需要先切换到 `services/openai-api/` 方案。
 
 ## 服务端口
 
