@@ -28,6 +28,19 @@ CosyVoice2-0.5B OpenAI 兼容 TTS 服务
      inference_zero_shot() 那一行——否则并发请求会同时抢 GPU。
   4. 客户端中途断连（GeneratorExit / CancelledError）要能正确停止推理
      线程、关闭底层生成器、并释放锁，不能让线程和显存占用悬空。
+
+★ 首包延迟优化（2026-08-05，推翻此前"无需切句"的结论，见 memory-bank/progress.md
+  决策记录）：实测证明首包延迟与**第一个分片的文本长度**正相关（本质是 LLM
+  prefill 成本），不是恒定值。CosyVoice 的 frontend.py 用
+  split_paragraph(..., comma_split=False) 切分长文本，逗号不算切分点，逗号密集
+  的长句会整句被当成一个分片合成，首包要等整句合成完。
+  应对：把用户输入的**第一个短片段**（按中文标点切，含逗号，长度不超过
+  TTS_FIRST_CHUNK_MAX_CHARS）单独调一次 inference_zero_shot 先吐出来，剩余文本
+  再整体调一次让 CosyVoice 用它自己的默认策略切分。见 _split_first_chunk() 与
+  _pcm_stream()。inference_zero_shot 内部本来就是 for i in texts: 逐段独立调用
+  self.model.tts()，段与段之间没有跨段状态，所以我们自己多切一刀在韵律上和
+  CosyVoice 自己切是等价的，不会引入新的断裂。TTS_FIRST_CHUNK_MAX_CHARS<=0 时
+  完全退回原行为（单次调用），作为快速回退开关。
 """
 import argparse
 import asyncio
@@ -50,6 +63,17 @@ from pydantic import BaseModel
 # ── 常量 ──────────────────────────────────────────────────────
 SAMPLE_RATE = 24000  # CosyVoice2 固定输出采样率，与 API 契约一致
 PCM_MEDIA_TYPE = "application/octet-stream"
+
+# 首包延迟优化：第一个分片的最大字符数上限，见文件头部说明。
+# <=0 表示关闭优化，退回"整段一次性调用 inference_zero_shot"的原行为。
+# 默认值 15 是服务器实测多档（10/12/15/20）后选出的最优档，详见
+# wiki guide/tts-cosyvoice.mdx「首包延迟优化」一节的实测表格。
+TTS_FIRST_CHUNK_MAX_CHARS = int(os.getenv("TTS_FIRST_CHUNK_MAX_CHARS", "15"))
+
+# 中文（含全角）+ 英文标点，作为首片切分点；**包含逗号**——这正是相对
+# CosyVoice 自身 split_paragraph(comma_split=False) 的关键差异，逗号密集的
+# 长句首片才能被切短。
+_FIRST_CHUNK_PUNCTUATION = "，,。？！；：、.?!;"
 
 
 # ── 日志初始化（简单版：stdout + 可选文件，风格上呼应 openai-api 的
@@ -326,6 +350,39 @@ def _validate_speech_request(body: SpeechRequest) -> None:
         )
 
 
+def _split_first_chunk(text: str, max_chars: int) -> list:
+    """
+    把 text 切成 1~2 段，供 _pcm_stream 依次合成：
+
+      - max_chars <= 0（关闭开关）：不切，返回 [text]，退回原行为。
+      - len(text) <= max_chars：本来就短，没有切分必要，返回 [text]，
+        避免无谓的二次调用开销。
+      - 否则：在 text[:max_chars] 窗口内找**第一个**中文/英文标点
+        （_FIRST_CHUNK_PUNCTUATION，含逗号）作为切分点，切出 [首片, 剩余]；
+        窗口内一个标点都没有（罕见：一长串无标点文本）则硬切在 max_chars
+        处——仍然保证首片长度有界，代价是切分点没有落在语义边界上。
+
+    只切第一刀：剩余文本整体作为第二段交给 CosyVoice 自己的
+    split_paragraph 逻辑处理，不逐句切碎，避免停顿变多（见文件头部说明）。
+    """
+    if max_chars <= 0 or len(text) <= max_chars:
+        return [text]
+
+    split_at = -1
+    for i, ch in enumerate(text[:max_chars]):
+        if ch in _FIRST_CHUNK_PUNCTUATION:
+            split_at = i
+            break
+    if split_at == -1:
+        split_at = max_chars - 1
+
+    first, rest = text[: split_at + 1], text[split_at + 1 :]
+    if not rest.strip():
+        # 切出来的"剩余"是空白/纯标点，没有合成价值，退回不切
+        return [text]
+    return [first, rest]
+
+
 async def _pcm_stream(text: str, voice: str, speed: float, request_id: str) -> AsyncGenerator[bytes, None]:
     """
     合成并流式产出 PCM16LE 字节块。
@@ -338,81 +395,105 @@ async def _pcm_stream(text: str, voice: str, speed: float, request_id: str) -> A
         串行化 GPU 访问；请求异常/客户端断连时锁也会正常释放。
       - stop_event 用于客户端中途断连（GeneratorExit / CancelledError）
         时通知生产者线程尽快停止，并显式 close() 底层生成器。
+
+    首包延迟优化：segments 可能是 [首片, 剩余] 两段（见 _split_first_chunk），
+    这里用同一个 for 循环依次跑两次"生产者线程 + 队列桥接"，**仍在同一个
+    async with _gpu_lock 之内、同一个 async generator 帧里完成**——不拆成
+    嵌套的 async generator，这样客户端断连时 GeneratorExit 无论落在哪一段
+    的 `yield item` 上，都能被同一个 try/except/finally 捕获、正确 stop_event
+    当前那段的生产者线程、并让锁在 `async with` 退出时正常释放，不需要额外
+    处理"嵌套生成器没被自动 aclose()"的问题。
     """
+    segments = _split_first_chunk(text, TTS_FIRST_CHUNK_MAX_CHARS)
+    if len(segments) > 1:
+        log.info(
+            "TTS 首包优化触发：切出首片 %d 字，剩余 %d 字 [request_id=%s]",
+            len(segments[0]),
+            len(segments[1]),
+            request_id,
+        )
+
     async with _gpu_lock:
         loop = asyncio.get_running_loop()
-        # 队列必须无界：生产者线程只能用 call_soon_threadsafe(queue.put_nowait, ...)
-        # 往回投递，而 put_nowait 在队列满时抛 QueueFull——异常发生在 event loop
-        # 的回调里而不是生产者线程里，结果是「音频块被静默丢弃 + loop 里冒出一个
-        # 无人处理的异常」，客户端听到的是缺帧的音频却收不到任何错误。
-        # 设 maxsize 只会制造背压的假象（生产者根本不会被阻塞）。
-        # 内存上界可控：合成时长 × 48KB/s（24000Hz × 2B），且 _gpu_lock 保证
-        # 同一时刻只有一个请求在缓冲。真要背压得改用
-        # asyncio.run_coroutine_threadsafe(queue.put(x), loop).result(timeout=...)
-        # 配合 stop_event 轮询，代价是复杂度上升。
-        queue: "asyncio.Queue" = asyncio.Queue()
-        stop_event = threading.Event()
-        SENTINEL = object()
-        error_box: Dict[str, BaseException] = {}
-
-        def producer() -> None:
-            gen = _model.inference_zero_shot(
-                text, "", "", zero_shot_spk_id=voice, stream=True, speed=speed
-            )
-            try:
-                for out in gen:
-                    if stop_event.is_set():
-                        break
-                    chunk = out["tts_speech"]
-                    # .cpu() 必须有：stream 模式下 tensor 可能仍在 GPU 上，
-                    # 直接 .numpy() 会报错
-                    pcm_f32 = chunk.cpu().numpy()
-                    # 官方实现没有 clip；极端幅值转 int16 时会 wrap 产生爆音，
-                    # 这里的 np.clip 是我们相对官方的主动加固
-                    pcm_f32 = np.clip(pcm_f32, -1.0, 1.0)
-                    pcm_bytes = (pcm_f32 * 32767.0).astype(np.int16).tobytes()
-                    loop.call_soon_threadsafe(queue.put_nowait, pcm_bytes)
-            except BaseException as e:  # noqa: BLE001 - 需要把异常带回 async 侧
-                error_box["error"] = e
-            finally:
-                closer = getattr(gen, "close", None)
-                if closer:
-                    closer()
-                loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
-
-        producer_task = asyncio.create_task(asyncio.to_thread(producer))
         chunk_count = 0
-        try:
-            while True:
-                item = await queue.get()
-                if item is SENTINEL:
-                    break
-                chunk_count += 1
-                yield item
 
-            if "error" in error_box:
-                raise error_box["error"]
+        for seg_index, seg_text in enumerate(segments):
+            # 队列必须无界：生产者线程只能用 call_soon_threadsafe(queue.put_nowait, ...)
+            # 往回投递，而 put_nowait 在队列满时抛 QueueFull——异常发生在 event loop
+            # 的回调里而不是生产者线程里，结果是「音频块被静默丢弃 + loop 里冒出一个
+            # 无人处理的异常」，客户端听到的是缺帧的音频却收不到任何错误。
+            # 设 maxsize 只会制造背压的假象（生产者根本不会被阻塞）。
+            # 内存上界可控：合成时长 × 48KB/s（24000Hz × 2B），且 _gpu_lock 保证
+            # 同一时刻只有一个请求在缓冲。真要背压得改用
+            # asyncio.run_coroutine_threadsafe(queue.put(x), loop).result(timeout=...)
+            # 配合 stop_event 轮询，代价是复杂度上升。
+            queue: "asyncio.Queue" = asyncio.Queue()
+            stop_event = threading.Event()
+            SENTINEL = object()
+            error_box: Dict[str, BaseException] = {}
 
-            log.info(
-                "TTS 合成完成 voice=%s chunks=%d [request_id=%s]",
-                voice,
-                chunk_count,
-                request_id,
-            )
-        except (asyncio.CancelledError, GeneratorExit):
-            log.warning(
-                "客户端断连，停止 TTS 推理 voice=%s [request_id=%s]", voice, request_id
-            )
-            stop_event.set()
-            raise
-        finally:
-            stop_event.set()
-            # 等待生产者线程真正退出，避免线程/显存占用悬空
+            def producer(seg_text: str = seg_text) -> None:
+                gen = _model.inference_zero_shot(
+                    seg_text, "", "", zero_shot_spk_id=voice, stream=True, speed=speed
+                )
+                try:
+                    for out in gen:
+                        if stop_event.is_set():
+                            break
+                        chunk = out["tts_speech"]
+                        # .cpu() 必须有：stream 模式下 tensor 可能仍在 GPU 上，
+                        # 直接 .numpy() 会报错
+                        pcm_f32 = chunk.cpu().numpy()
+                        # 官方实现没有 clip；极端幅值转 int16 时会 wrap 产生爆音，
+                        # 这里的 np.clip 是我们相对官方的主动加固
+                        pcm_f32 = np.clip(pcm_f32, -1.0, 1.0)
+                        pcm_bytes = (pcm_f32 * 32767.0).astype(np.int16).tobytes()
+                        loop.call_soon_threadsafe(queue.put_nowait, pcm_bytes)
+                except BaseException as e:  # noqa: BLE001 - 需要把异常带回 async 侧
+                    error_box["error"] = e
+                finally:
+                    closer = getattr(gen, "close", None)
+                    if closer:
+                        closer()
+                    loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+            producer_task = asyncio.create_task(asyncio.to_thread(producer))
             try:
-                await producer_task
-            except Exception:
-                # 生产者内部异常已经通过 error_box 处理过，这里只是确保线程收尾
-                pass
+                while True:
+                    item = await queue.get()
+                    if item is SENTINEL:
+                        break
+                    chunk_count += 1
+                    yield item
+
+                if "error" in error_box:
+                    raise error_box["error"]
+            except (asyncio.CancelledError, GeneratorExit):
+                log.warning(
+                    "客户端断连，停止 TTS 推理 voice=%s segment=%d/%d [request_id=%s]",
+                    voice,
+                    seg_index + 1,
+                    len(segments),
+                    request_id,
+                )
+                stop_event.set()
+                raise
+            finally:
+                stop_event.set()
+                # 等待生产者线程真正退出，避免线程/显存占用悬空
+                try:
+                    await producer_task
+                except Exception:
+                    # 生产者内部异常已经通过 error_box 处理过，这里只是确保线程收尾
+                    pass
+
+        log.info(
+            "TTS 合成完成 voice=%s segments=%d chunks=%d [request_id=%s]",
+            voice,
+            len(segments),
+            chunk_count,
+            request_id,
+        )
 
 
 @app.post("/v1/audio/speech")

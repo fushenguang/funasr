@@ -158,6 +158,9 @@ services:
       # 成对扫描环境变量自动注册，新增音色只需追加一对同名变量，无需改代码
       - XIAOXI_PROMPT_WAV=${XIAOXI_PROMPT_WAV:-/opt/voices/xiaoxi_16k.wav}
       - XIAOXI_PROMPT_TEXT=${XIAOXI_PROMPT_TEXT:-}
+      # 首包延迟优化：首片最大字符数上限，<=0 关闭优化退回原行为。见 server.py
+      # 文件头部说明与 wiki guide/tts-cosyvoice.mdx「首包延迟优化」实测表格
+      - TTS_FIRST_CHUNK_MAX_CHARS=${TTS_FIRST_CHUNK_MAX_CHARS:-15}
     networks: [backend]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
