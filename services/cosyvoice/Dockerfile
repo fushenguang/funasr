@@ -86,6 +86,18 @@ RUN grep -vE '^tensorrt-cu12' requirements.txt > /tmp/requirements.no-trt.txt \
  && pip install --no-cache-dir -r /tmp/requirements.no-trt.txt \
  && pip install --no-cache-dir fastapi "uvicorn[standard]"
 
+# 部署服务器实测确认（2026-08-05）：requirements.txt 只显式钉了
+# torch==2.3.1 / torchaudio==2.3.1，没有钉 torchvision 版本。torchvision
+# 没有版本约束时 pip 会解析到当前最新的 0.19.0——但 0.19.0 是配 torch 2.4.x
+# 发布的，其 _meta_registrations.py 在 import 时用到
+# `torch.library.register_fake`，这个 API 在 torch 2.3.1 里不存在，
+# 导致容器启动时 `from cosyvoice.cli.cosyvoice import CosyVoice2` 触发的
+# import 链在 torchvision 这一步直接 AttributeError，服务反复重启。
+# torch 2.3.1 官方配套的 torchvision 版本是 0.18.1，显式重装覆盖上一步
+# 装出来的不兼容版本；沿用同一个 --extra-index-url 拿到 +cu121 编译版。
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu121 \
+    "torchvision==0.18.1"
+
 # CosyVoice 源码与内置的 Matcha-TTS 子模块都需要在 PYTHONPATH 上，
 # 官方 README 与示例代码都是这么处理的
 ENV PYTHONPATH=/opt/CosyVoice:/opt/CosyVoice/third_party/Matcha-TTS
