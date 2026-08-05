@@ -36,6 +36,10 @@ __pycache__/
 *.swp
 *.swo
 
+# Claude Code 工程配置（本地使用，不进 Git）
+CLAUDE.md
+.claude/
+
 # macOS
 .DS_Store
 
