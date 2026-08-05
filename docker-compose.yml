@@ -44,7 +44,13 @@ services:
     healthcheck:
       # 💡 修复点：把 /health 改为 /
       # wget -q -O /dev/null 表示静默请求并丢弃输出，只要 HTTP 状态码是 200 就返回成功
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      # 部署服务器实测复现：nginx/conf.d/funasr.conf 只 `listen 80;`，没有
+      # `listen [::]:80;`，但容器内 wget 解析 "localhost" 时优先拿到 ::1
+      # （IPv6），导致连到一个 nginx 根本没监听的地址上被拒绝
+      # （Connection refused），健康检查因此持续 unhealthy，即使 nginx 本身
+      # 完全正常（用 127.0.0.1 直连能拿到 200）。显式写 127.0.0.1 强制走
+      # IPv4，避开这个解析歧义，不依赖容器 /etc/hosts 里 localhost 的顺序。
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       retries: 3
