@@ -139,6 +139,57 @@ SET1 只有 `/` 一个字符，映射到 SET2 的第一个字符 `_`，多余的
 起服务后用 `nvidia-smi` 核实实际显存余量，吃紧时优先考虑分离部署（例如 TTS 单独一台机器）或
 降低 `funasr-api` 扩容数，不要盲目 `--scale-api N`。
 
+**实测数字**（RTX 3060 12GB，2026-08-05）：
+
+| 时点 | 显存占用 | 占比 |
+|------|---------|------|
+| 部署前（全部服务未启动） | 12 MiB | ~0% |
+| 启动 `funasr-api` + `funasr-ws` | 3353 MiB（api 1070MB + ws 2258MB） | 27% |
+| 再启动 `cosyvoice-tts` | 7218~7320 MiB（+3860~3962MB） | ~60% |
+
+三者共存后余量约 5GB，这块卡上还能再放一份同等大小的模型，但不建议在部署阶段就盲目 `--scale-api N`——显存余量会随请求并发和 batch 情况波动，扩容前务必重新用 `nvidia-smi` 核实。
+
+## 构建与部署实测记录（2026-08-05，RTX 3060 12GB）
+
+首次在真实 GPU 服务器上部署本服务，构建阶段暴露了多个仅能在服务器上复现的问题（本机 macOS 无 GPU 无法预先发现）。以下按面向未来重新构建 / 排障的顺序记录。
+
+### 三个预埋 TODO 的核实结论
+
+1. **基础镜像是否自带 conda** —— **是**。`pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime` 自带 conda，`conda install -c conda-forge pynini==2.1.5` 直接可用，实测约 79s（含 conda 自身从 `pkgs/main` 切到 `conda-forge` 索引的一次性升级）。
+2. **requirements.txt 在镜像 Python 3.11 下能否全部装上** —— **基本能，但有 5 处需要修复**（见下表），修复后可以正常装完。
+3. **ttsfrd 跳过后 WeTextProcessing 兜底是否正常** —— **不正常，是已知限制**。`server.py` 跳过 ttsfrd 后依赖 CosyVoice 自带的 `wetext` 包做文本前端（数字/日期归一化等），但 `wetext` 在**运行时**会尝试从 ModelScope 下载额外资源文件（`pengzhendong/wetext`），其中部分文件请求返回 `403`（`Authentication token does not exist`），最终日志输出 `no frontend is avaliable`——文本前端**完全不可用**，不是精度降级而是整个归一化环节被跳过。纯中文短句（如示例音色测试用的句子）合成不受影响，但涉及数字、日期、单位等需要文本归一化的内容效果需要额外验证；根治需要给容器配置 ModelScope 访问令牌或手工预置 `wetext` 资源文件，本轮未实现。
+
+### 构建阶段修复的问题
+
+`services/cosyvoice/Dockerfile` 与 `services/cosyvoice/server.py` 在部署过程中暴露并修复了以下问题（均已提交到 `feat/upgrade-and-wiki` 分支）：
+
+| 问题 | 现象 | 修复 |
+|------|------|------|
+| PEP 668 externally-managed-environment | `scripts/download_models.sh` 里裸 `pip install modelscope` 在 Ubuntu 24.04 + Python 3.12 上报 `externally-managed-environment` | 检测到该错误后补 `--break-system-packages` 重试 |
+| `openai-whisper` 缺 `pkg_resources` | legacy `setup.py` 里 `import pkg_resources`，pip 隔离构建环境默认装的最新 setuptools（实测 83.0.0）解析不到该模块，`Getting requirements to build wheel` 阶段 `ModuleNotFoundError` | `PIP_CONSTRAINT` 把隔离构建环境的 setuptools 钉在 `<81` |
+| `tensorrt-cu12` / `-bindings` / `-libs` 访问受限 | `-libs` 是 wheel_stub 占位包，硬编码请求 `pypi.nvidia.com`，该域名与 `download.pytorch.org`、`aiinfra.pkgs.visualstudio.com` 一样在这台服务器的网络环境下 TLS 握手失败 | 对照源码确认 `load_trt=False` 时用不到，构建时过滤掉这三个包，不修改 `requirements.txt` 本身 |
+| `pyworld` 编译失败 | 没有预编译 wheel，需要现场编译 C++ 扩展，报 `error: command 'g++' failed: No such file or directory` | apt 层加装 `build-essential` |
+| `torchvision` 版本未钉导致与 `torch==2.3.1` 不兼容 | requirements.txt 只钉了 `torch`/`torchaudio` 版本，`torchvision` 解析到最新 0.19.0（配 torch 2.4.x），容器启动时 `AttributeError: module 'torch.library' has no attribute 'register_fake'` | 显式重装 `torchvision==0.18.1`（torch 2.3.1 官方配套版本） |
+| `deepspeed` 在 runtime 镜像里启动崩溃 | `deepspeed==0.15.1` 装上后 `transformers.modeling_utils` 会无条件 `import deepspeed`，其 `git_version_info.py` 每次 import 都重新执行 CUDA 兼容性检测，要求 `nvcc` 存在；基础镜像是不含开发工具链的 `*-runtime` 变体，容器启动即崩溃重启，报 `CUDA_HOME does not exist` | 对照源码确认推理路径不引用 deepspeed（仅用于分布式训练），构建时过滤掉 |
+| pip 大文件下载超时 | `nvidia_cudnn_cu12`（731.7MB）等大 wheel 从 `download.pytorch.org` 下载到一半触发 pip 默认 15s 读超时 | `PIP_DEFAULT_TIMEOUT=120` |
+| `add_zero_shot_spk` 传参类型错误（`server.py` 自身的 bug） | 官方签名 `add_zero_shot_spk(prompt_text, prompt_wav, zero_shot_spk_id)` 的 `prompt_wav` 要求文件路径字符串，内部会自行按需要的采样率重新加载；旧代码手动 `load_wav()` 预加载成 tensor 再传入，导致 `torchaudio.load` 收到 tensor 直接 `TypeError`，音色注册 100% 失败 | 改为直接传文件路径，对照官方 `example.py` 用法修正 |
+| Nginx 健康检查用 `localhost` 在容器内解析到 IPv6 | `nginx/conf.d/funasr.conf` 只 `listen 80;`，没有监听 IPv6；`wget http://localhost/` 在容器内优先解析到 `::1` 被拒绝连接，导致 nginx 容器持续报 `unhealthy`（服务本身完全正常） | 健康检查显式改用 `http://127.0.0.1/` |
+
+这些问题里，网络访问受限（`tensorrt`/`pypi.nvidia.com` 那条）和大文件超时是这台服务器网络环境相关，其余 6 个是与网络无关的、任何环境重新构建这个镜像都会复现的真实缺陷。
+
+### 耗时与性能实测
+
+- **TTS 模型下载**（`iic/CosyVoice2-0.5B`，ModelScope）：2 分 16 秒，5.3GB（`models/` 目录总占用增至 11GB）
+- **镜像构建**（`docker compose build cosyvoice-tts`，含以上所有修复后的完整一次构建）：pip 安装依赖层约 10 分钟（网络状况良好时；构建服务器在部署过程中经历过一次网络波动，未计入此数字），conda/pynini 层约 79 秒，`git clone --recursive` 数秒（视 GitHub 连通性而定）
+- **模型加载**（容器启动到 `/health` 就绪）：79.3s（首次冷启动，含 wetext 资源下载重试约 20~30s）/ 5.5s（同镜像重启后的热启动，操作系统页缓存生效）
+- **合成短句**（"你好，我是小羲。"，4 字，非流式等效）：96000 字节 = 2.00s 音频，请求总耗时 1.71s（RTF ≈ 0.85）
+- **合成长句流式**（约 40 字的句子）：首个音频分片到达 **1.55s**（用 Python 直连服务测得，区别于 curl 的 `time_starttransfer`——后者只反映 HTTP 响应头提交时刻，几乎为 0，不能代表真实首包延迟）；总时长 3.57s 产出 10.08s 音频（RTF ≈ 0.35，约 3 倍实时速度）；模型内部逐分片 RTF 在 0.30~0.45 之间
+- **客户端断连**：`curl -m 1` 中断后，日志正确输出「客户端断连，停止 TTS 推理」，GPU 锁立即释放（用紧接着的一次新请求验证，200 响应无需等待），服务健康状态不受影响
+
+### 验证结果
+
+阶段 6 全部验证项目通过：`docker compose ps` 五个服务均 `healthy`；`cosyvoice-tts` 内部 `/health` 返回 `device`/`device_requested` 均为 `cuda`（GPU 确实生效，非静默回退 CPU）；`/v1/audio/voices` 正确返回 `xiaoxi`；4 项边界测试（空 `input`、未注册音色、`response_format=wav`、`speed=0`）均返回 `400` 并带清晰错误信息，无 `500`；ASR 侧 `/health`、`/docs`、`/openapi.json`、根路径状态页、`/ws`（`426 Upgrade Required`）、`/v1/audio/transcriptions`（无文件返回 `422`）均未受新增 TTS 路由影响。
+
 ## 与 ASR 接口的关系
 
 `/v1/audio/speech` 与 `/v1/audio/voices` 是精确路径的 Nginx location，按最长前缀匹配

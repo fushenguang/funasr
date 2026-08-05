@@ -4,11 +4,12 @@
 
 ### 核心基础设施
 - [x] Docker Compose 多服务编排（nginx + funasr-api + funasr-ws + cosyvoice-tts + log-rotate）
-- [x] CosyVoice2-0.5B TTS 后端接入（`services/cosyvoice/`）
+- [x] CosyVoice2-0.5B TTS 后端接入（`services/cosyvoice/`），**2026-08-05 已在部署服务器（RTX 3060 12GB）实测跑通**
   - 自建 FastAPI，OpenAI 兼容 `POST /v1/audio/speech`，流式 PCM16LE @ 24000Hz
-  - 服务端预注册命名音色（zero-shot 音色克隆，`<NAME>_PROMPT_WAV`/`<NAME>_PROMPT_TEXT` 环境变量成对发现）
+  - 服务端预注册命名音色（zero-shot 音色克隆，`<NAME>_PROMPT_WAV`/`<NAME>_PROMPT_TEXT` 环境变量成对发现），实测 `xiaoxi` 音色（官方示例 `zero_shot_prompt.wav` + 在容器内核实的转录文本）注册成功
   - 同步推理生成器通过 `asyncio.to_thread` + `asyncio.Queue` 桥接，避免卡死 event loop
-  - `asyncio.Lock` 串行化 GPU 访问，覆盖整个流式产出周期，客户端断连正确释放
+  - `asyncio.Lock` 串行化 GPU 访问，覆盖整个流式产出周期，客户端断连正确释放（实测验证：`curl -m 1` 中断后锁立即释放，紧接着的新请求无需等待）
+  - 实测首个音频分片延迟约 1.55s，端到端 RTF 约 0.35；详见 wiki `guide/tts-cosyvoice.mdx`「构建与部署实测记录」
 - [x] NVIDIA GPU 支持（`deploy.resources.reservations.devices`）
 - [x] Docker 镜像构建（`services/funasr/Dockerfile`）
   - PyTorch 2.4.0 + CUDA 12.1 基础镜像
@@ -55,7 +56,8 @@
 - [ ] WebSocket 鉴权机制（当前无鉴权）
 - [ ] 请求限流（rate limiting）
 - [ ] TTS `inference_instruct2`（指令控制情感/语速等）扩展点已在 `server.py` 留注释，本轮未实现
-- [ ] TTS 服务器实测（构建、显存共存、首包延迟）— 见下方「待服务器核实」
+- [x] ~~TTS 服务器实测（构建、显存共存、首包延迟）~~ → **2026-08-05 已在部署服务器完整实测并跑通**，见下方「已知问题」核实结论与 wiki `guide/tts-cosyvoice.mdx` 的「构建与部署实测记录」
+- [ ] TTS 文本前端（WeTextProcessing/`wetext`）运行时需要访问 ModelScope 下载资源，实测遇 403 无法完整初始化，`no frontend is avaliable`——需要配置 ModelScope 访问令牌或手工预置 `wetext` 资源文件后重新验证
 
 ### 代码清理
 - [ ] 确认 `services/openai-api/` 的用途（增强版 API vs 官方 CLI）
@@ -73,14 +75,15 @@
 1. ~~**`services/` 目录存在冗余**~~ → 2026-08-04 定性为**备选方案（保留但未启用）**，已在 README 与 wiki 中显式标注，不再作为待办
 2. **WebSocket 无鉴权**：`funasr-ws` 直接对外暴露，没有认证机制
 3. **env 变量 `$$` 转义**：docker-compose.yml 中 `funasr-ws` 的 command 使用 `$${}` 语法（Docker Compose 变量转义），需要注意 `.env` 变量是否被正确解析
-4. **TTS 待服务器核实项**（本机 macOS 无 GPU，无法本地验证，均已在代码中用 `# TODO(须服务器核实):` 标注）：
-   - `pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime` 是否自带 conda（`conda install pynini` 依赖它）
-   - CosyVoice `requirements.txt` 在该镜像 Python 版本（≈3.11）下能否全部装上
+4. **TTS 待服务器核实项**（本机 macOS 无 GPU，无法本地验证，均已在代码中用 `# TODO(须服务器核实):` 标注）—— **2026-08-05 已在部署服务器（RTX 3060 12GB）全部核实并跑通**：
+   - ~~`pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime` 是否自带 conda~~ → **是**，`conda install pynini` 直接可用，实测约 79s
+   - ~~CosyVoice `requirements.txt` 在该镜像 Python 版本（≈3.11）下能否全部装上~~ → **基本能，发现并修复 5 处真实缺陷**：`openai-whisper` 缺 `pkg_resources`（需 `PIP_CONSTRAINT=setuptools<81`）、`tensorrt-cu12*` 访问受限且推理路径用不到（跳过安装）、`pyworld` 编译需要 `g++`（装 `build-essential`）、`torchvision` 未钉版本导致与 `torch==2.3.1` 不兼容（显式钉 `0.18.1`）、`deepspeed` 在无 `nvcc` 的 runtime 镜像里启动即崩溃且推理路径不引用（跳过安装）。详见 `services/cosyvoice/Dockerfile` 注释与 wiki
    - ~~ModelScope 实际落盘目录名~~ → **2026-08-05 已在部署服务器核实**：是 `iic_CosyVoice2-0.5B`（单个下划线）。
      此前规格里断言的"双下划线"是错的——`tr '/' '__'` 是字符映射不是字符串替换，`/` 只映射成一个 `_`；
      服务器上既有的 `iic_SenseVoiceSmall` 目录即为佐证
-   - 3060 12GB 上 `funasr-api` + `funasr-ws` + CosyVoice2 fp16 三者能否共存，需 `nvidia-smi` 实测
-   - 流式首包延迟与块粒度的实测值
+   - ~~3060 12GB 上 `funasr-api` + `funasr-ws` + CosyVoice2 fp16 三者能否共存~~ → **能**，实测三者共存占用 7218~7320 MiB / 12288 MiB（约 60%），余量约 5GB
+   - ~~流式首包延迟与块粒度的实测值~~ → **真实首个音频分片延迟约 1.55s**（约 40 字长句，Python 直连测得；注意 `curl` 的 `time_starttransfer` 只反映 HTTP 响应头提交时刻，接近 0，不能代表真实首包延迟，是本轮排查中发现的一个测量陷阱）；端到端 RTF 约 0.35（约 3 倍实时速度），模型内部逐分片 RTF 0.30~0.45
+   - **新发现，非预埋 TODO**：`server.py` 的 `add_zero_shot_spk` 调用传参类型错误（预加载 tensor 而非文件路径），导致音色注册在真实环境下 100% 失败；`docker-compose.yml` 的 nginx 健康检查用 `http://localhost/` 在容器内解析到 IPv6 被拒绝连接，导致 nginx 持续报 unhealthy（服务本身正常）。两者均已修复并验证，详见 wiki「构建与部署实测记录」表格
 
 ## 决策记录
 
@@ -96,3 +99,6 @@
 | 2026-08-04 | 新增 CosyVoice2-0.5B 作为第 4 个后端服务（`cosyvoice-tts`），自建 FastAPI 而非套用 `services/openai-api/` 骨架 import | TTS 与 ASR 的推理模型/生命周期完全不同，独立服务便于跟随 CosyVoice 上游单独升级；只借鉴 `services/openai-api/server.py` 的骨架风格（lifespan/请求追踪/parse_args），不引入依赖耦合 |
 | 2026-08-04 | TTS 命名音色通过 `<NAME>_PROMPT_WAV`/`<NAME>_PROMPT_TEXT` 环境变量成对扫描自动注册，而非硬编码音色列表 | 新增音色只需要在 `.env`/compose environment 加一对变量 + 放参考 wav，不用改 `server.py` 代码 |
 | 2026-08-04 | `download_models.sh` 新增 `--tts-only`，但 CosyVoice2 模型**默认不随** `--api-only`/`--ws-only` 之外的无参数默认运行一起下载 | TTS 模型体积达数 GB，不应在现有用户执行不带参数的默认下载命令时静默新增一次大体积下载；需要显式执行一次 `--tts-only` |
+| 2026-08-05 | TTS 服务在部署服务器（RTX 3060 12GB）首次实测跑通，构建阶段跳过 `tensorrt-cu12*` 与 `deepspeed` 两组依赖，不安装进镜像 | 均已对照 CosyVoice 源码确认推理路径（`load_trt=False`、非分布式训练）完全不引用；`tensorrt-cu12-libs` 依赖的 `pypi.nvidia.com`、`deepspeed` 依赖的 `nvcc`（runtime 镜像不含开发工具链）在本次部署环境下都不可用/不存在，装不上或装上就崩溃，跳过是明确更优的选择而非临时绕过 |
+| 2026-08-05 | Nginx 健康检查目标从 `http://localhost/` 改为 `http://127.0.0.1/` | 实测复现：`nginx/conf.d/funasr.conf` 只 `listen 80;`（无 IPv6），但容器内 `wget` 解析 `localhost` 优先拿到 `::1`，连接被拒绝，导致健康检查持续失败而服务本身正常；这是配置解析歧义，非本次部署服务器特有，换任何环境都会复现 |
+| 2026-08-05 | TTS 文本前端（`wetext`/WeTextProcessing）在无 ModelScope 访问令牌的环境下判定为**已知限制，暂不解决** | 运行时资源下载遇 403，`no frontend is avaliable`，文本归一化完全不可用；根治需要配置访问令牌或手工预置资源文件，超出本轮部署验证范围，留待后续按需处理 |
