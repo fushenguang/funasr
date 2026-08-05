@@ -79,10 +79,25 @@ WORKDIR /opt/CosyVoice
 # `import tensorrt`，不在任何模块顶层，而 server.py 的 lifespan() 固定传
 # CosyVoice2(..., load_trt=False)，这两个方法从不会被调用，跳过安装不影响
 # 本服务运行时行为（只是放弃一个我们本就没用的可选加速选项）。
+#
+# 同样跳过 deepspeed==0.15.1（requirements.txt 第 4 行，仅用于分布式训练，
+# 已对照 cosyvoice/cli/model.py、cosyvoice/cli/cosyvoice.py 确认推理路径
+# 完全不引用 deepspeed）。部署服务器实测复现：deepspeed 装上后，
+# transformers.modeling_utils 在 import 时会无条件 `import deepspeed`
+# （只要包已安装就触发，不看是否用得到），深入到
+# deepspeed/git_version_info.py 会在**每次 import 时**重新执行
+# `installed_cuda_version()`——这个函数要求 `torch.utils.cpp_extension.
+# CUDA_HOME` 非空且能跑通 `$CUDA_HOME/bin/nvcc -V`。基础镜像是
+# pytorch/pytorch:*-runtime（刻意精简、不含 CUDA 开发工具链 nvcc），
+# 不是 *-devel，所以这个检查必然失败并原样抛出未捕获异常，直接导致
+# 容器启动时崩溃重启（CrashLoopBackOff），日志报
+# "CUDA_HOME does not exist, unable to compile CUDA op(s)"。
+# 装 nvcc 只为满足这一个用不到的依赖代价过高（镜像体积、构建时间），
+# 跳过是更合理的选择。
 # 用过滤后的临时文件安装，不修改 git clone 下来的 requirements.txt 本身。
 ENV PIP_CONSTRAINT=/tmp/pip-build-constraints.txt
 RUN echo "setuptools<81" > /tmp/pip-build-constraints.txt
-RUN grep -vE '^tensorrt-cu12' requirements.txt > /tmp/requirements.no-trt.txt \
+RUN grep -vE '^(tensorrt-cu12|deepspeed)' requirements.txt > /tmp/requirements.no-trt.txt \
  && pip install --no-cache-dir -r /tmp/requirements.no-trt.txt \
  && pip install --no-cache-dir fastapi "uvicorn[standard]"
 
