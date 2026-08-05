@@ -21,6 +21,16 @@ OpenAI 兼容的 `POST /v1/audio/speech`，流式返回**裸 PCM16LE mono @ 2400
 
 > **内网免配置：** Nginx 统一网关自动注入 `Authorization: Bearer funasr-internal`，客户端不需要显式携带 API Key。
 
+<Callout type="warn" title="网关端口不一定是 80，接入前先确认">
+上表的 Base URL 省略了端口，实际端口由部署环境 `.env` 里的 `NGINX_HTTP_PORT` 决定，默认 `80`。
+
+**当前部署服务器（`192.168.31.50`）上是 `9080`**，因为宿主机的 80 端口已被同机运行的 Dokploy traefik 占用。
+即完整地址是 `http://192.168.31.50:9080/v1/audio/speech`。
+
+客户端接入前请用 `grep NGINX_HTTP_PORT .env` 或 `docker compose ps nginx` 确认实际映射端口，
+不要照搬文档里省略端口的写法。
+</Callout>
+
 ## 请求格式
 
 ```
