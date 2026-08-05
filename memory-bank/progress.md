@@ -10,7 +10,8 @@
   - 同步推理生成器通过 `asyncio.to_thread` + `asyncio.Queue` 桥接，避免卡死 event loop
   - `asyncio.Lock` 串行化 GPU 访问，覆盖整个流式产出周期，客户端断连正确释放（实测验证：`curl -m 1` 中断后锁立即释放，紧接着的新请求无需等待）
   - 实测首个音频分片延迟约 1.55s，端到端 RTF 约 0.35；详见 wiki `guide/tts-cosyvoice.mdx`「构建与部署实测记录」
-  - **2026-08-05 补测**：首包延迟在 8~227 字文本区间稳定在 1.49~1.60s，不随文本变长而线性增长（CosyVoice 官方 `text_normalize()` 内部已用 `split_paragraph()` 做等价切句），**结论是不需要在服务端再实现一层切句优化**
+  - ~~2026-08-05 补测：首包延迟在 8~227 字文本区间稳定在 1.49~1.60s，不随文本变长而线性增长，结论是不需要在服务端再实现一层切句优化~~ → **该结论已被推翻，见下方「2026-08-05（二次修正）」**：更细粒度实测证明首包延迟随**第一个分片的文本长度**增长（LLM prefill 成本），此前用的样本首字恰好都落在 CosyVoice 内部 `split_paragraph()` 同一分片长度区间，掩盖了真实规律
+  - **2026-08-05（二次修正）已实现首包切分优化**：`services/cosyvoice/server.py` 在提交给 CosyVoice 前先按中文标点（含逗号）切出首个短片段（`TTS_FIRST_CHUNK_MAX_CHARS`，默认 15 字，<=0 关闭）单独合成先吐出，剩余文本整体再合成。部署服务器实测（各 3 次取中位数）：42 字长句首包 1.585s→0.815s（-48.6%），126 字长句首包 1.528s→0.77s（-49.6%），两者音频总时长偏差均 <5%（无明显停顿副作用）；短于阈值的文本（3 字、15 字）不触发切分，行为与优化前一致。额外测过阈值 12：15 字全句会被强制切分，音频时长从 3.52s 涨到 4.16s（+18%，超过 5% 判断线），是切分引入额外停顿的客观证据，因此选择更保守的 15 作为默认值。详见 wiki `guide/tts-cosyvoice.mdx`「首包延迟优化：首片切分」与 `guide/agent-tts-integration.mdx` §8
   - **2026-08-05 已根治**文本前端问题：`wetext` 从 `0.0.4` 升级到 `0.1.6`（FST 资源打包进 wheel，不再依赖 ModelScope 运行时下载），容器内实测 `Normalizer(remove_erhua=False).normalize('2026年8月5日下午3点，收费128元，涨幅12.5%。')` → `'二零二六年八月五日下午三点，收费一百二十八元，涨幅百分之十二点五。'`，日志不再出现 `no frontend is avaliable`
   - **2026-08-05 下载源国内化**：`services/cosyvoice/Dockerfile` 的 pip/conda/git 源全部改为国内镜像（阿里云 pytorch-wheels、清华 conda-forge、可选 GitHub 镜像 build arg），真实重建验证 pip 安装阶段耗时从 627.4s 降到 412.0s（约快 34%），总构建时间从约 11m51s 降到 10m27s（约快 12%）
 - [x] NVIDIA GPU 支持（`deploy.resources.reservations.devices`）
@@ -112,5 +113,7 @@
 | 2026-08-05 | conda 装 pynini 改用清华 conda-forge 镜像 + `--override-channels`，不再退回 `-c conda-forge`（国外）或触碰默认 `defaults` 频道 | 已实测清华镜像 repodata 里存在所需的 `pynini==2.1.5` py311 构建，与 conda-forge 官方源等价；`--override-channels` 避免 conda 在解析依赖时仍尝试连国外的默认频道 |
 | 2026-08-05 | git clone CosyVoice 新增可选 `COSYVOICE_GIT_MIRROR` build arg，但**默认值仍是直连 GitHub**，不强制走镜像 | git clone 相比 pip/conda 的大体积二进制传输对国内网络通常更友好，多数环境不需要镜像；镜像可用性变化快，写死在默认值里反而更脆弱。已实测推荐值 `https://ghfast.top/https://github.com/` 可用（含 `third_party/Matcha-TTS` 子模块），作为环境不稳定时的可选覆盖项 |
 | 2026-08-05 | 基础镜像 `pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime` **不改为国内镜像** | 已实测阿里云容器镜像服务（ACR）对 `pytorch/pytorch` 这类非官方命名空间镜像要求鉴权（`GET /v2/pytorch/pytorch/tags/list` 返回 `401`），没有可公开替换的国内 tag；部署服务器 Docker daemon 已配置 `registry-mirrors`（daocloud/nju.edu.cn/dockerproxy 等），`docker pull` 已透明加速，Dockerfile 层面硬编码某个第三方镜像 registry 主机名反而更脆弱（这类服务可用性变化快） |
-| 2026-08-05 | 不在服务端实现客户端可见的"切句优化"来降低 TTS 首包延迟 | 实测 8~227 字文本首包延迟稳定在 1.49~1.60s，不随文本变长线性增长，因为 CosyVoice 官方 `text_normalize()` 内部已用 `split_paragraph()`（`token_max_n=80`）做等价切句、逐段流式产出；自己再切一遍没有延迟收益，反而会因多次 HTTP 往返增加总耗时 |
+| 2026-08-05 | ~~不在服务端实现客户端可见的"切句优化"来降低 TTS 首包延迟~~ **（已推翻，见下一条）** | 原判断依据是"实测 8~227 字文本首包延迟稳定在 1.49~1.60s，不随文本变长线性增长"——这个前提本身是错的，样本选取掩盖了真实规律，判断也随之作废 |
+| 2026-08-05（二次修正） | 在 `services/cosyvoice/server.py` 实现首包切分优化：切出用户输入的第一个短片段（按中文标点含逗号，长度上限 `TTS_FIRST_CHUNK_MAX_CHARS`，默认 15 字）单独合成先吐出，剩余文本整体再合成 | 更细粒度实测（决定性对照：同一段 42 字文本，整段提交首包 1.58s vs 只提交首个 7 字逗号分句首包 0.77s）证明首包延迟随首个分片长度单调增长，根因是 CosyVoice `frontend.py` 的 `split_paragraph(..., comma_split=False)` 不把逗号当切分点，逗号密集的长句会整句被当一个分片合成。`inference_zero_shot` 内部逐段独立调用 `self.model.tts()`，段间无跨段状态，自己多切一刀在韵律上与 CosyVoice 自己切等价，风险低 |
+| 2026-08-05（二次修正） | 首片长度上限默认值选 15 字，不选实测同样测过的 12 字 | 阈值 12 会把「你好，我是小羲，很高兴认识你。」（15 字整句）强制切成 3 字+12 字两段，音频总时长从 3.52s 涨到 4.16s（+18%，超过 5% 判断线），是切分引入额外停顿的客观证据；两个长句样本（首个逗号分句固定 7 字）在 12/15 两档下切分结果相同、收益无差别；因此 15 更安全——完整拿到长句收益，不误伤本来就短的完整句子 |
 | 2026-08-05 | 新增 wiki 文档 `guide/agent-tts-integration.mdx`，独立于 `guide/tts-cosyvoice.mdx` | 前者面向接入方（AI Agent/开发者），聚焦请求契约、错误码、流式实现边界、并发限制，信息密度优先；后者是部署方视角的产品说明+实测记录，两者读者不同，合并会让部署文档过长、也会让接入方要在业务说明里翻找技术契约 |
