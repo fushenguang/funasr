@@ -41,6 +41,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
  && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
+# 部署服务器实测：requirements.txt 里 torch==2.3.1 拉起的
+# nvidia_cudnn_cu12（731.7MB）等大体积 wheel 在 download.pytorch.org 上
+# 连续两次触发 pip 默认 15s 读超时（urllib3.exceptions.ReadTimeoutError,
+# "Read timed out"）——这条链路吞吐量会有短暂波动，默认超时对大文件偏紧。
+# 调大到 120s，只影响单次读操作的超时阈值，不改变下载的实际内容。
+ENV PIP_DEFAULT_TIMEOUT=120
+
 # 已在部署服务器实测（2026-08-05）：pytorch/pytorch:*-runtime 系列镜像确实
 # 自带 conda（`conda install` 直接可用，本层实测约 79s 完成，含 conda 自身
 # 从 pkgs/main 切到 conda-forge 索引的一次性升级），不需要退路方案。
