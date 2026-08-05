@@ -29,8 +29,12 @@ RUN sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/s
 # curl: docker healthcheck 探活 /health
 # sox/libsox-dev: CosyVoice 音频前端依赖
 # ffmpeg: 音频编解码兜底
+# build-essential: requirements.txt 里的 pyworld==0.3.4 是带 C++ 扩展的源码包
+#   （没有预编译 wheel），装的时候要现场编译 cheaptrick.cpp 等文件，需要 g++。
+#   部署服务器实测复现：没有这条会在 pip install 阶段报
+#   "error: command 'g++' failed: No such file or directory"。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl sox libsox-dev ffmpeg \
+    git curl sox libsox-dev ffmpeg build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # pip 换清华镜像
