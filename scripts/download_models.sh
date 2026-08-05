@@ -158,9 +158,10 @@ if $DOWNLOAD_TTS; then
     echo ""
     log "─ CosyVoice2 TTS 模型 ─"
 
-    # 注意: 落盘目录名是 iic__CosyVoice2-0.5B（双下划线，来自本函数的
-    # tr '/' '__'），不是 iic/CosyVoice2-0.5B 子目录。cosyvoice-tts 容器的
-    # COSYVOICE_MODEL_DIR 默认值已按这个真实路径配置，详见 .env.example。
+    # 注意: 落盘目录名是 iic_CosyVoice2-0.5B —— 本函数的 tr '/' '__' 是
+    # 字符映射不是字符串替换，'/' 只会被映射成 SET2 的第一个字符 '_'，
+    # 所以是单个下划线（可对照已有的 iic_SenseVoiceSmall 目录）。
+    # cosyvoice-tts 容器的 COSYVOICE_MODEL_DIR 默认值已按此路径配置。
     download_model \
         "iic/CosyVoice2-0.5B" \
         "CosyVoice2 TTS（语音合成）"

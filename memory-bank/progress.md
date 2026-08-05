@@ -76,7 +76,9 @@
 4. **TTS 待服务器核实项**（本机 macOS 无 GPU，无法本地验证，均已在代码中用 `# TODO(须服务器核实):` 标注）：
    - `pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime` 是否自带 conda（`conda install pynini` 依赖它）
    - CosyVoice `requirements.txt` 在该镜像 Python 版本（≈3.11）下能否全部装上
-   - ModelScope 实际落盘目录名是否真是 `iic__CosyVoice2-0.5B`（需 `download_models.sh --tts-only` 后 `ls models/` 核实）
+   - ~~ModelScope 实际落盘目录名~~ → **2026-08-05 已在部署服务器核实**：是 `iic_CosyVoice2-0.5B`（单个下划线）。
+     此前规格里断言的"双下划线"是错的——`tr '/' '__'` 是字符映射不是字符串替换，`/` 只映射成一个 `_`；
+     服务器上既有的 `iic_SenseVoiceSmall` 目录即为佐证
    - 3060 12GB 上 `funasr-api` + `funasr-ws` + CosyVoice2 fp16 三者能否共存，需 `nvidia-smi` 实测
    - 流式首包延迟与块粒度的实测值
 

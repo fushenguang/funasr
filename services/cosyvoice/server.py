@@ -11,10 +11,13 @@ CosyVoice2-0.5B OpenAI 兼容 TTS 服务
 那是另一个未启用的备选服务，两者相互独立。
 
 ★ 关键坑（务必先读，改动前确认没有破坏这些点）：
-  1. 模型路径：ModelScope snapshot_download 落盘目录是
-     iic__CosyVoice2-0.5B（双下划线，见 scripts/download_models.sh 的
-     tr '/' '__'），不是 iic/CosyVoice2-0.5B 子目录。启动时会显式校验
-     目录是否存在，不存在直接 fail fast 并打印期望的真实路径。
+  1. 模型路径：download_models.sh 用 `tr '/' '__'` 处理 model_id。注意
+     tr 是**字符映射**不是字符串替换——SET1 只有 '/' 一个字符，映射到
+     SET2 的第一个字符 '_'，多余的 '_' 被忽略。所以落盘目录是
+     iic_CosyVoice2-0.5B（单个下划线），既不是双下划线，也不是
+     iic/CosyVoice2-0.5B 子目录。已在部署服务器上以既有的
+     iic_SenseVoiceSmall 目录实证。启动时会显式校验目录存在，
+     不存在直接 fail fast 并打印期望路径。
   2. CosyVoice 的 inference_zero_shot 是阻塞的同步生成器（GPU 推理），
      绝不能在 async 生成器里直接 for 迭代——那会卡死整个 event loop，
      合成期间 /health 无响应，docker healthcheck（10s 超时）会判
@@ -139,7 +142,7 @@ async def lifespan(app: FastAPI):
             f"CosyVoice2 模型目录不存在: {model_dir}\n"
             "请确认已执行 `bash scripts/download_models.sh --tts-only`，"
             "且 ModelScope 实际落盘目录名与此路径一致 —— "
-            "正确形态是 iic__CosyVoice2-0.5B（双下划线），"
+            "正确形态是 iic_CosyVoice2-0.5B（单下划线），"
             "不是 iic/CosyVoice2-0.5B 子目录。"
             "服务器上可用 `ls /root/.cache/modelscope/hub` 核实真实目录名。"
         )
@@ -453,7 +456,7 @@ def parse_args():
         "--model-dir",
         default=os.getenv(
             "COSYVOICE_MODEL_DIR",
-            "/root/.cache/modelscope/hub/iic__CosyVoice2-0.5B",
+            "/root/.cache/modelscope/hub/iic_CosyVoice2-0.5B",
         ),
     )
     return parser.parse_args()

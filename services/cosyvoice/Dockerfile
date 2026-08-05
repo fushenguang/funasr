@@ -14,9 +14,10 @@
 #      wheel，与本镜像的 Python 版本（随 PyTorch 基础镜像，约 3.11）
 #      不匹配，这里主动跳过，退回用 requirements.txt 自带的
 #      WeTextProcessing 兜底（功能可用，精度略低于 ttsfrd）。
-#   3. 模型落盘目录是 iic__CosyVoice2-0.5B（双下划线，来自
-#      scripts/download_models.sh 的 tr '/' '__'），不是
-#      iic/CosyVoice2-0.5B 子目录，详见 server.py 启动时的校验逻辑。
+#   3. 模型落盘目录是 iic_CosyVoice2-0.5B（单个下划线）。
+#      download_models.sh 的 tr '/' '__' 是字符映射不是字符串替换，
+#      '/' 只映射成一个 '_'；已在部署服务器上以 iic_SenseVoiceSmall 实证。
+#      不是 iic/CosyVoice2-0.5B 子目录，详见 server.py 启动时的校验逻辑。
 # ============================================================
 FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 

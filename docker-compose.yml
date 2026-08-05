@@ -147,7 +147,7 @@ services:
       - MODELSCOPE_CACHE=/root/.cache/modelscope/hub
       - LOG_LEVEL=${LOG_LEVEL:-INFO}           # server.py 读这个变量，不传的话 .env 里改级别不生效
       - COSYVOICE_DEVICE=${FUNASR_DEVICE:-cuda}
-      - COSYVOICE_MODEL_DIR=${COSYVOICE_MODEL_DIR:-/root/.cache/modelscope/hub/iic__CosyVoice2-0.5B}
+      - COSYVOICE_MODEL_DIR=${COSYVOICE_MODEL_DIR:-/root/.cache/modelscope/hub/iic_CosyVoice2-0.5B}
       # 命名音色 "xiaoxi"：server.py 按 <NAME>_PROMPT_WAV / <NAME>_PROMPT_TEXT
       # 成对扫描环境变量自动注册，新增音色只需追加一对同名变量，无需改代码
       - XIAOXI_PROMPT_WAV=${XIAOXI_PROMPT_WAV:-/opt/voices/xiaoxi_16k.wav}

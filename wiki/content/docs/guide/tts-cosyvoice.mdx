@@ -123,9 +123,14 @@ TTS 模型体积较大（数 GB），不随默认的 `download_models.sh` 一起
 bash scripts/download_models.sh --tts-only
 ```
 
-模型在 ModelScope 上的实际落盘目录名是 `iic__CosyVoice2-0.5B`（**双下划线**，来自下载脚本的
-`tr '/' '__'` 处理），不是 `iic/CosyVoice2-0.5B` 子目录——`cosyvoice-tts` 容器的
-`COSYVOICE_MODEL_DIR` 默认值已经按这个真实路径配置好，一般不需要改动。
+模型的实际落盘目录名是 `iic_CosyVoice2-0.5B`（**单个下划线**），不是 `iic/CosyVoice2-0.5B` 子目录。
+`cosyvoice-tts` 容器的 `COSYVOICE_MODEL_DIR` 默认值已按此路径配置，一般不需要改动。
+
+<Callout type="info" title="为什么是单个下划线">
+`download_models.sh` 用 `tr '/' '__'` 处理 model id。`tr` 是**字符映射**而非字符串替换：
+SET1 只有 `/` 一个字符，映射到 SET2 的第一个字符 `_`，多余的 `_` 被忽略。
+可以对照服务器上已有的 `iic_SenseVoiceSmall` 目录确认。
+</Callout>
 
 ## 显存容量提示
 
