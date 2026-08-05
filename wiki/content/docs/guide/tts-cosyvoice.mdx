@@ -1,0 +1,143 @@
+---
+title: TTS 语音合成接入（CosyVoice2）
+description: 如何使用 OpenAI 兼容接口接入 CosyVoice2-0.5B 语音合成服务
+---
+
+## 接口概览
+
+`cosyvoice-tts` 是本项目的第 4 个后端服务，基于 [CosyVoice2-0.5B](https://github.com/FunAudioLLM/CosyVoice) 自建
+OpenAI 兼容的 `POST /v1/audio/speech`，流式返回**裸 PCM16LE mono @ 24000Hz**（无 WAV 头）。
+
+与 ASR 侧（`funasr-api`/`funasr-ws`）不同，TTS 音色采用**服务端预注册命名音色**：参考音频与其文字转录
+全部提前配置在服务端，客户端调用时只传 `{input, voice}`，不接受客户端上传参考音频进行实时克隆。
+
+## 连接参数
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| **Base URL** | `http://<server-ip>/v1/audio/speech` | TTS 合成端点 |
+| **API Key** | `funasr-internal` | 内网固定密钥（Nginx 自动注入，与 ASR 侧一致） |
+| **Model** | `cosyvoice2` | 固定值，仅一种模型 |
+
+> **内网免配置：** Nginx 统一网关自动注入 `Authorization: Bearer funasr-internal`，客户端不需要显式携带 API Key。
+
+## 请求格式
+
+```
+POST /v1/audio/speech
+Content-Type: application/json
+
+{
+  "model": "cosyvoice2",
+  "input": "要合成的文本",
+  "voice": "xiaoxi",          // 服务端预注册的命名音色 id
+  "response_format": "pcm",   // 固定 pcm：16-bit LE mono @ 24000Hz，无 WAV 头
+  "speed": 1.0,               // 取值范围 0.25 ~ 4.0（与 OpenAI 一致），越界返回 400
+  "stream": true              // true: HTTP chunked 流式；false: 整段一次性返回
+}
+```
+
+响应：`200`，`Content-Type: application/octet-stream`，`Transfer-Encoding: chunked`（`stream=true` 时），body 是裸 PCM16LE mono @ 24000Hz 字节流。
+
+> 用 `application/octet-stream` 而不是 `audio/pcm`，是为了避免中间代理按音频类型做缓冲或转换而破坏流式。客户端按裸 PCM16LE 直接解析即可，不要依赖 Content-Type 判断格式。
+
+未注册音色、空 `input`、`response_format` 不是 `pcm`、`speed` 越界，均返回 `4xx` 并带明确的错误信息，不会静默降级。
+
+## cURL 测试
+
+```bash
+# 健康检查（注意 /health 走的是 funasr-api；TTS 自身健康状态用下面这条）
+curl http://<server-ip>/health
+# TTS 服务状态：device 是 torch 探测到的真实设备，
+# 若 device 与 device_requested 不一致，说明 GPU 没挂上，推理会退到 CPU
+docker compose exec cosyvoice-tts curl -s localhost:8100/health
+
+# 查看可用音色
+curl http://<server-ip>/v1/audio/voices
+
+# 流式合成，保存为裸 PCM 后用 ffplay 播放
+curl -s -X POST http://<server-ip>/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"你好，我是小羲。","voice":"xiaoxi","response_format":"pcm","stream":true}' \
+  --output out.pcm
+
+ffplay -f s16le -ar 24000 -ac 1 out.pcm
+```
+
+## Python 接入示例
+
+服务返回的是裸 PCM 流，不是标准音频容器格式，因此不能直接用 OpenAI SDK 的 `speech.create()`
+写文件后当作 WAV/MP3 播放——需要自己拼流并按 `s16le / 24000Hz / mono` 解释字节：
+
+```python
+import requests
+
+resp = requests.post(
+    "http://<server-ip>/v1/audio/speech",
+    json={
+        "input": "你好，我是小羲。",
+        "voice": "xiaoxi",
+        "response_format": "pcm",
+        "stream": True,
+    },
+    stream=True,
+    timeout=300,
+)
+resp.raise_for_status()
+
+with open("out.pcm", "wb") as f:
+    for chunk in resp.iter_content(chunk_size=4096):
+        f.write(chunk)
+
+# 如需标准 WAV 文件，可用 wave 模块补上 44 字节头：
+import wave
+with wave.open("out.wav", "wb") as w:
+    w.setnchannels(1)
+    w.setsampwidth(2)   # 16-bit
+    w.setframerate(24000)
+    w.writeframes(open("out.pcm", "rb").read())
+```
+
+## 命名音色配置
+
+参考音频与转录全部在服务端，通过环境变量成对声明，`server.py` 启动时自动扫描注册，
+新增音色不需要改代码：
+
+```bash
+# .env
+XIAOXI_PROMPT_WAV=/opt/voices/xiaoxi_16k.wav
+XIAOXI_PROMPT_TEXT=参考音频里念的那句话的准确转录
+```
+
+约定：`<NAME>_PROMPT_WAV` + `<NAME>_PROMPT_TEXT` 成对出现，`NAME` 小写后即为音色 id
+（如 `XIAOXI_*` → 音色 `xiaoxi`）。参考音频要求 **16kHz 单声道 WAV**，配套转录必须逐字准确，
+否则会明显拉低合成效果。详细步骤见仓库根目录 `voices/README.md`。
+
+> **合规要求**：参考音频必须是自己录制的，或已获得明确授权的音源，**不得未经同意克隆真实人物的声音**。
+
+## 模型部署（GPU 服务器）
+
+TTS 模型体积较大（数 GB），不随默认的 `download_models.sh` 一起下载，需要单独执行：
+
+```bash
+bash scripts/download_models.sh --tts-only
+```
+
+模型在 ModelScope 上的实际落盘目录名是 `iic__CosyVoice2-0.5B`（**双下划线**，来自下载脚本的
+`tr '/' '__'` 处理），不是 `iic/CosyVoice2-0.5B` 子目录——`cosyvoice-tts` 容器的
+`COSYVOICE_MODEL_DIR` 默认值已经按这个真实路径配置好，一般不需要改动。
+
+## 显存容量提示
+
+`funasr-api`（约 3~4GB/实例）+ `funasr-ws`（4 个模型，占用更高）+ CosyVoice2 fp16（数 GB）
+三者共存对 12GB 级显卡（如 RTX 3060）压力较大。**首次部署建议 `--scale-api 1` + 单份 TTS 实例**，
+起服务后用 `nvidia-smi` 核实实际显存余量，吃紧时优先考虑分离部署（例如 TTS 单独一台机器）或
+降低 `funasr-api` 扩容数，不要盲目 `--scale-api N`。
+
+## 与 ASR 接口的关系
+
+`/v1/audio/speech` 与 `/v1/audio/voices` 是精确路径的 Nginx location，按最长前缀匹配
+优先于更短的 `/v1/`，因此不会与 ASR 侧的 `/v1/*`（转写、`/v1/models` 等）冲突，两套后端各自独立。
+
+> 来源：[CosyVoice 官方仓库](https://github.com/FunAudioLLM/CosyVoice) · 本项目实现见
+> `services/cosyvoice/server.py`、`docker-compose.yml` 的 `cosyvoice-tts` 服务块。

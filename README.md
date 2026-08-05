@@ -21,9 +21,13 @@ funasr-deploy/
 │   │   ├── logging_config.py
 │   │   └── requirements.txt
 │   │
-│   └── runtime-ws/             # ⚠️ 备选方案，当前未启用
-│       ├── Dockerfile          # 内联版 WebSocket 服务
-│       └── funasr_wss_server.py
+│   ├── runtime-ws/             # ⚠️ 备选方案，当前未启用
+│   │   ├── Dockerfile          # 内联版 WebSocket 服务
+│   │   └── funasr_wss_server.py
+│   │
+│   └── cosyvoice/               # ✅ 当前使用（docker-compose.yml 引用此目录）
+│       ├── Dockerfile          # CosyVoice2-0.5B TTS 服务镜像
+│       └── server.py           # 自建 OpenAI 兼容 TTS API（/v1/audio/speech）
 │
 ├── nginx/
 │   ├── nginx.conf              # Nginx 主配置（JSON 访问日志）
@@ -41,6 +45,10 @@ funasr-deploy/
 ├── config/
 │   └── hotwords.txt            # WebSocket Runtime 热词（可选）
 │
+├── voices/                     # CosyVoice2 命名音色参考音频（不进 Git，见 voices/README.md）
+│   ├── .gitkeep
+│   └── README.md
+│
 ├── models/                     # 模型文件（不进 Git，由脚本管理）
 │   └── .gitkeep
 │
@@ -48,6 +56,7 @@ funasr-deploy/
     ├── nginx/                  # Nginx JSON 访问日志
     ├── api/                    # API 服务结构化日志
     ├── runtime/                # WebSocket Runtime 日志
+    ├── tts/                    # CosyVoice TTS 服务日志
     └── system/                 # 系统级日志（预留）
 ```
 
@@ -71,7 +80,8 @@ bash scripts/preflight.sh
 ### 3. 预下载模型（推荐，避免首次启动时下载超时）
 
 ```bash
-bash scripts/download_models.sh
+bash scripts/download_models.sh          # 下载 API + WebSocket 模型
+bash scripts/download_models.sh --tts-only  # 需要 TTS 时单独执行，模型体积较大（数 GB）
 ```
 
 ### 4. 启动服务
@@ -91,6 +101,13 @@ curl http://localhost/v1/audio/transcriptions \
   -F file=@your_audio.wav \
   -F model=sensevoice \
   -F response_format=verbose_json
+
+# TTS 合成测试（需先在 voices/ 配置好命名音色，见 voices/README.md）
+curl -s -X POST http://localhost/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"你好，我是小羲。","voice":"xiaoxi","response_format":"pcm","stream":true}' \
+  --output out.pcm
+ffplay -f s16le -ar 24000 -ac 1 out.pcm
 ```
 
 ## 扩展 API 实例
@@ -139,6 +156,7 @@ bash scripts/logs.sh nginx --since 1h
 | Nginx (统一入口) | 80 | 所有流量走这里 |
 | funasr-api | 8000 | 内部端口，不对外 |
 | funasr-ws | 10095 | 内部端口，不对外 |
+| cosyvoice-tts | 8100 | 内部端口，不对外，经 Nginx `/v1/audio/speech` 与 `/v1/audio/voices` 转发 |
 
 ## 接入方式
 
@@ -168,6 +186,25 @@ ws://<server-ip>/ws
 ```
 
 参考 [FunASR WebSocket 客户端示例](https://github.com/modelscope/FunASR/blob/main/runtime/docs/SDK_advanced_guide_online_zh.md)
+
+### TTS 语音合成（CosyVoice2-0.5B）
+
+OpenAI 兼容的 `POST /v1/audio/speech`，流式返回裸 PCM16LE mono @ 24000Hz（无 WAV 头）。
+音色使用服务端预注册的命名音色，客户端只传 `{input, voice}`，详见 `voices/README.md`
+与 [wiki TTS 接入文档](wiki/content/docs/guide/tts-cosyvoice.mdx)。
+
+```bash
+curl -s -X POST http://localhost/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"你好，我是小羲。","voice":"xiaoxi","response_format":"pcm","stream":true}' \
+  --output out.pcm
+ffplay -f s16le -ar 24000 -ac 1 out.pcm
+```
+
+> **显存容量提示**：`funasr-api`（约 3~4GB/实例）+ `funasr-ws`（4 模型，占用更高）+
+> CosyVoice2 fp16（数 GB）三者共存对 12GB 级显卡（如 RTX 3060）压力较大。
+> 首次部署建议 `--scale-api 1` + 单份 TTS 实例，起服务后用 `nvidia-smi` 核实实际余量，
+> 显存吃紧时优先考虑分离部署或降低 `funasr-api` 扩容数。
 
 ## 未来接外网（frp 方案）
 
